@@ -6,7 +6,7 @@
 
 import { doc, p, ul, ol, li, blockquote, pre, h1, strong, em, img, br } from 'prosemirror-test-builder';
 import { Schema } from 'prosemirror-model';
-import { renderSlice, pointAt, posAt } from '../src/slice-renderer.js';
+import { renderSlice, sliceRenderer, pointAt, posAt } from '../src/slice-renderer.js';
 
 // A list schema with HTML's ordinal attributes, and one with structured marks (the studio's shape: an instance and its parent on each mark).
 const lists = new Schema({
@@ -54,9 +54,10 @@ export function run() {
     ['lists, a reversed list cut before its third item', listDoc, 0, at(listDoc, 'c') - 2],
     ['structured marks, whole', markedDoc, 0, null],
     ['structured marks, from inside the inner run', markedDoc, 2, null],
+    ['lists, from the third item of a reversed list with a value, under another registry', listDoc, at(listDoc, 'c'), null, sliceRenderer({ attribute: 'data-pager', away: 'gone', split: 'cut' })],
   ];
-  return cases.map(([name, d, from, to]) => {
-    const rendered = renderSlice(d, from, to);
+  return cases.map(([name, d, from, to, render = renderSlice]) => {
+    const rendered = render(d, from, to);
     const root = document.body.appendChild(document.createElement('div'));
     root.appendChild(rendered.fragment);
     const end = to ?? d.content.size;

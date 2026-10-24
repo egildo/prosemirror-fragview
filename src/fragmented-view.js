@@ -2,9 +2,11 @@
  * `FragmentedView`: an `EditorState` rendered into a chain of fragmentainers, speaking `EditorView`'s protocol to the same plugins.
  *
  * @remarks
- * Constructed as `EditorView` is, with one more prop, `containers`, the `ContainerFactory` the view asks for each fragmentainer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
+ * Constructed as `EditorView` is, with two more props: `containers`, the `ContainerFactory` the view asks for each fragmentainer, and `words`, the words registry of the slice renderer it hands every fill (`sliceRenderer(words)`, built once; this package's own words when omitted). The plugin and the containers never see the registry: a container receives the renderer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
  *
  * Rendering. After every state the view fills the first dirty entry, and only that one: `fill` writes its DOM before its first wait, so the fragment is rendered inside `updateState`, and when its promise settles the view dispatches the `refilled` transaction. That transaction is the ripple: an entry whose `to` lands where the mapping put it leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range.
+ *
+ * Invalidation. `invalidate()` says the conditions every fill was made under have changed (a page size, a stylesheet, a face that arrived late): every built container is released and its element removed, every placeholder and hint dropped, and every entry marked dirty by a `dirtied` transaction with no key, so the next update asks the factory for new containers and refills the chain from the first. The dirtiness goes through the plugin as every other chain change does, outside the history like the refills; the containers are the view's and are released on the view alone. The entries keep their keys and their ranges, which the ripple corrects. `setProps` invalidates when it is given a new `containers` or `words`.
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
@@ -25,11 +27,12 @@ import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import { DOMParser as PMDOMParser, DOMSerializer, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
-import { renderSlice, openedAt, TRAILING_BREAK } from './slice-renderer.js';
+import { sliceRenderer, openedAt, TRAILING_BREAK } from './slice-renderer.js';
 
 /** @import { EditorState, Transaction, Plugin, PluginView } from 'prosemirror-state' */
 /** @import { Node as PMNode } from 'prosemirror-model' */
-/** @import { ContainerFactory, ContainerHint, Fragmentainer } from './fragmentainer.js' */
+/** @import { ContainerFactory, ContainerHint, Fragmentainer, SliceRenderer } from './fragmentainer.js' */
+/** @import { Words } from './slice-renderer.js' */
 /** @import { Entry } from './fragments-plugin.js' */
 
 /**
@@ -38,8 +41,8 @@ import { renderSlice, openedAt, TRAILING_BREAK } from './slice-renderer.js';
  */
 
 /**
- * The props: `EditorView`'s direct props, read through `someProp` as `EditorView` reads them, the factory and the window policy.
- * @typedef {{ state: EditorState, containers: ContainerFactory, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
+ * The props: `EditorView`'s direct props, read through `someProp` as `EditorView` reads them, the factory, the words registry and the window policy.
+ * @typedef {{ state: EditorState, containers: ContainerFactory, words?: Partial<Words>, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
  */
 
 /** @typedef {{ node: globalThis.Node, offset: number }} DOMPoint */
@@ -87,6 +90,8 @@ export class FragmentedView {
   constructor(place, props) {
     /** @type {FragmentedViewProps} */
     this._props = props;
+    /** The slice renderer every fill is handed, for the `words` prop. @type {SliceRenderer} */
+    this.render = sliceRenderer(props.words);
     /** @type {EditorState} */
     this.state = withFragments(props.state);
     /** The root element holding the fragments; it is the editing host. */
@@ -200,11 +205,30 @@ export class FragmentedView {
     this.update(prev);
   }
 
-  /** @param {Partial<FragmentedViewProps>} props */
+  /**
+   * Merge props, as `EditorView.setProps` does. A new `containers` or `words` invalidates the chain, since a fragment rendered by the old factory or with the old words is stale.
+   * @param {Partial<FragmentedViewProps>} props
+   */
   setProps(props) {
-    this._props = { ...this._props, ...props };
+    const old = this._props;
+    this._props = { ...old, ...props };
+    if ('words' in props && props.words !== old.words) this.render = sliceRenderer(props.words);
+    const stale = ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
     if (props.state) this.updateState(props.state);
-    else this.update(this.state);
+    else if (!stale) this.update(this.state);
+    if (stale) this.invalidate();
+  }
+
+  /**
+   * The conditions changed: release every built container, drop every placeholder and hint, and mark every entry dirty, so the chain is refilled from the first in containers the factory makes anew.
+   */
+  invalidate() {
+    if (this.destroyed) return;
+    for (const [key, container] of this.containers) this.unbuild(key, container, false);
+    for (const placeholder of this.placeholders.values()) { this.observer?.unobserve(placeholder); placeholder.remove(); }
+    this.placeholders.clear();
+    this.hints.clear();
+    this.dispatch(dirtied(this.state.tr));
   }
 
   /**
@@ -396,7 +420,8 @@ export class FragmentedView {
     this.filling.set(entry.key, { doc, from: entry.from });
     this.filledFrom.set(entry.key, entry.from);
     this.fillCount.set(entry.key, (this.fillCount.get(entry.key) ?? 0) + 1);
-    container.fill(doc, entry.from, renderSlice).then(({ to, next }) => {
+    container.fill(doc, entry.from, this.render).then(({ to, next }) => {
+      if (this.containers.get(entry.key) !== container) return; // released since, by an invalidation or a destroy: its answer is stale
       const mine = this.filling.get(entry.key);
       if (mine?.doc === doc && mine.from === entry.from) this.filling.delete(entry.key);
       if (this.destroyed || this.state.doc !== doc) return; // a later state is being filled
@@ -404,14 +429,14 @@ export class FragmentedView {
       const at = entries.findIndex((e) => e.key === entry.key);
       if (at < 0 || entries[at].from !== entry.from) return;
       this.hints.set(entry.key, next);
-      if (this.containers.get(entry.key) === container) this.boxHeight = container.dom.offsetHeight;
+      this.boxHeight = container.dom.offsetHeight;
       let tr = null;
       if (entries[at].dirty || entries[at].to !== to) tr = refilled(this.state.tr, entry.key, to);
       if (to != null && at === entries.length - 1) tr = appended(tr ?? this.state.tr, to);
       if (tr) this.dispatch(tr);
       else { this.refresh(); this.paint(); } // a clean fragment built again, with nothing to record
     }, (error) => {
-      this.filling.delete(entry.key);
+      if (this.containers.get(entry.key) === container) this.filling.delete(entry.key);
       queueMicrotask(() => { throw error; });
     });
   }

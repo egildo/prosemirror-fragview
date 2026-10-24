@@ -62,7 +62,7 @@
  */
 
 /**
- * The factory the view asks for the container after a cut, and for the first one. The basic factory returns another box; BelType's returns the page the hint and its own rules name.
+ * The factory the view asks for the container after a cut, and for the first one. The basic factory returns another box; a paginator's returns the page the hint and its own rules name.
  * @typedef {(index: number, hint: ContainerHint | undefined, chain: ReadonlyArray<Entry>) => Fragmentainer} ContainerFactory
  */
 

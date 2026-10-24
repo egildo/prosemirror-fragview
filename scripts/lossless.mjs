@@ -62,7 +62,7 @@ for (const marks of ['structured', 'nodes']) {
         if (el.closest('svg, math') && el.closest('svg, math') !== el) continue; // inside a raw element: carried verbatim, its own children
         r.elements++;
         const id = el.getAttribute('data-src');
-        const away = (el.getAttribute('data-beltype') ?? '').split(' ').includes('away');
+        const away = (el.getAttribute(window.harness.words.attribute) ?? '').split(' ').includes(window.harness.words.away);
         if (away) { r.away++; if (el.firstChild) r.awayNotShallow.push(path(el, root)); }
         if (el.localName === 'txt-run') { r.schemaRuns++; continue; }
         if (!id) { r.notInFile.push({ why: 'no source element', element: el.localName + (el.className ? `.${el.className}` : ''), path: path(el, root) }); continue; }

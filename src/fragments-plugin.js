@@ -10,7 +10,7 @@
  *
  * An entry whose `from` reaches the end of the document (no cursor position after it) is dropped, and the entry before it becomes the last, running to the end and dirty.
  *
- * The view's refills are transactions too: `refilled` sets an entry's `to` and clears its `dirty`, `appended` adds the entry after the last, and `dirtied` marks an entry dirty with no step (late truth: a fragment's content changed height after its fill). All go through a meta under `fragmentsKey`, and all mark the transaction `addToHistory: false`, so no refill is ever undone.
+ * The view's refills are transactions too: `refilled` sets an entry's `to` and clears its `dirty`, `appended` adds the entry after the last, and `dirtied` marks an entry dirty with no step (late truth: a fragment's content changed height after its fill), or every entry when it names none (the view's invalidation: the conditions of every fill changed). All go through a meta under `fragmentsKey`, and all mark the transaction `addToHistory: false`, so no refill is ever undone.
  *
  * @packageDocumentation
  */
@@ -38,7 +38,7 @@ import { Plugin, PluginKey, Selection } from 'prosemirror-state';
  * @typedef {object} FragmentsMeta
  * @property {{ key: number, to: number | null }} [refilled]
  * @property {{ from: number }} [appended]
- * @property {{ key: number }} [dirtied]
+ * @property {{ key: number | null }} [dirtied]
  */
 
 /** @type {PluginKey<FragmentsState>} */
@@ -59,7 +59,7 @@ export function fragmentsPlugin() {
         const meta = /** @type {FragmentsMeta | undefined} */ (tr.getMeta(fragmentsKey));
         if (meta?.refilled) entries = refill(entries, meta.refilled.key, meta.refilled.to);
         if (meta?.appended) entries = [...entries, { key: Math.max(-1, ...entries.map((e) => e.key)) + 1, from: meta.appended.from, to: null, dirty: true }];
-        if (meta?.dirtied) entries = entries.map((e) => (e.key === meta.dirtied?.key && !e.dirty ? { ...e, dirty: true } : e));
+        if (meta?.dirtied) entries = entries.map((e) => ((meta.dirtied?.key == null || e.key === meta.dirtied.key) && !e.dirty ? { ...e, dirty: true } : e));
         return entries === value.entries ? value : { entries };
       },
     },
@@ -159,12 +159,12 @@ export function refilled(tr, key, to) {
 }
 
 /**
- * The transaction that marks the entry `key` dirty, so the view refills it from its `from`.
+ * The transaction that marks the entry `key` dirty, so the view refills it from its `from`; every entry when `key` is omitted.
  * @param {Transaction} tr
- * @param {number} key
+ * @param {number | null} [key]
  * @returns {Transaction}
  */
-export function dirtied(tr, key) {
+export function dirtied(tr, key = null) {
   return withMeta(tr, { dirtied: { key } });
 }
 
