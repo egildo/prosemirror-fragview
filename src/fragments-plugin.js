@@ -6,7 +6,7 @@
  *
  * `apply` maps `from` with association −1 and `to` with association 1, so an insertion at a boundary falls inside both neighbours for a moment; both are marked dirty, and the refill of the first sets the second's `from` to its new `to`. A transaction that leaves the document alone changes nothing, and returns the same state object.
  *
- * A step touches an entry when its changed range meets the entry's range, and also when it lands in the first word after the entry's `to`: the line before a cut ended there because that word did not fit, so a change to the word can let it fit and move the cut, though the word is shown by the next fragment. The word is the run of non-space characters at `to`; ponytail: break opportunities read as spaces only, so a cut in CJK text or after a hyphen dirties too little, Intl.Segmenter's line granularity when it matters.
+ * A step touches an entry when its changed range meets the entry's range (for a step whose map moves nothing, a mark or an attribute, the range where the documents before and after it differ), and also when it lands in the first word after the entry's `to`: the line before a cut ended there because that word did not fit, so a change to the word can let it fit and move the cut, though the word is shown by the next fragment. The word is the run of non-space characters at `to`; ponytail: break opportunities read as spaces only, so a cut in CJK text or after a hyphen dirties too little, Intl.Segmenter's line granularity when it matters.
  *
  * An entry whose `from` reaches the end of the document (no cursor position after it) is dropped, and the entry before it becomes the last, running to the end and dirty.
  *
@@ -76,11 +76,19 @@ function mapEntry(entry, tr) {
   let { from, to, dirty } = entry;
   tr.mapping.maps.forEach((map, i) => {
     const reach = to == null ? null : wordEnd(tr.docs[i], to);
-    map.forEach((oldStart, oldEnd) => {
+    let mapped = false;
+    const touch = (/** @type {number} */ oldStart, /** @type {number} */ oldEnd) => {
       // An insertion touches the range it lands in, ends included; a deletion or replacement touches what it overlaps; either touches the first word after the cut.
       const touched = oldStart === oldEnd ? oldStart >= from && (reach == null || oldStart <= reach) : oldEnd > from && (reach == null || oldStart < reach || oldStart === /** @type {number} */ (to));
       if (touched) dirty = true;
-    });
+    };
+    map.forEach((oldStart, oldEnd) => { mapped = true; touch(oldStart, oldEnd); });
+    // A step that moves no position (a mark added or removed, an attribute set) has an empty map: the range it changed is read from the two documents.
+    if (!mapped) {
+      const before = tr.docs[i], after = tr.docs[i + 1] ?? tr.doc;
+      const start = before.content.findDiffStart(after.content);
+      if (start != null) touch(start, Math.max(start + 1, /** @type {{ a: number }} */ (before.content.findDiffEnd(after.content)).a));
+    }
     from = map.map(from, -1);
     if (to != null) to = map.map(to, 1);
   });
