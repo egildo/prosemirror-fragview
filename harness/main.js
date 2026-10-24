@@ -22,7 +22,7 @@ import { FragmentedView, OverflowBox, fragmentsKey, DEFAULT_WORDS, AWAY_SHEET, C
 import docHtml from './doc.html?raw';
 
 const query = new URLSearchParams(location.search);
-const boxes = query.get('boxes')?.split('x').map(Number) ?? null;
+let boxes = query.get('boxes')?.split('x').map(Number) ?? null;
 const near = query.get('window') === 'near';
 const defaultTimes = query.get('long') === '1' ? 10 : 1;
 const late = query.get('late') === '1';
@@ -170,6 +170,11 @@ window.harness = {
     paintToolbar();
   },
   view: (side) => (side === 'left' ? left : right),
+  /** Change the right side's box size, a change of conditions: the factory makes boxes of the new size from now on, and the view is told through `invalidate()`. */
+  resize(width, height) {
+    boxes = [width, height];
+    right.invalidate();
+  },
   /** Focus a side and set its selection from `anchor` to `head`. */
   select(side, anchor, head) {
     const view = side === 'left' ? left : right;

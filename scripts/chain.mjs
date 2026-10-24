@@ -332,6 +332,40 @@ section('The window policy, 4 240 words, window near, margin 1');
   console.log(`then scrolled to the middle: ${resumedFills.length} fills (the ripple resumed from box ${resumedFills[0]?.index}); built [${resumed.builtIdx}]; dirty ${resumed.dirty}; every built box shows its entry's text: ${(await consistent()) ? 'yes' : 'no'}`);
 }
 
+// ---------------------------------------------------------------- invalidation
+
+await load('boxes=320x480');
+section('Invalidation: the box size changes from 320 × 480 to 280 × 400, and the view is told');
+{
+  const before = await chain();
+  await page.evaluate(() => { for (const box of window.harness.right.dom.children) box.__old = true; });
+  await mark();
+  await page.evaluate(() => window.harness.resize(280, 400));
+  await page.waitForFunction(() => window.harness.right.filling.size === 0 && window.harness.chain().every((e) => !e.dirty));
+  await settle(200);
+  const after = await chain();
+  const log = await fills();
+  const trs = await transactions();
+  const boxes = await page.evaluate(() => [...window.harness.right.dom.children].map((box) => ({ old: !!box.__old, size: `${box.style.width}×${box.style.height}`, placeholder: box.classList.contains('fragview-placeholder') })));
+  const sizes = [...new Set(boxes.map((b) => b.size))];
+  console.log(`before: ${cuts(before)}`);
+  console.log(`transactions: ${trs.map((t) => Object.keys(t.meta ?? {}).join('+')).join(', ')}; the first marks dirty [${trs[0].chain.map((e) => (e.dirty ? 1 : 0))}]`);
+  console.log(`refills: ${log.length}, boxes ${log.map((x) => x.index)}`);
+  console.log(`after: ${cuts(after)}; ${boxes.length} elements, sizes ${sizes.join(', ')}, old boxes left ${boxes.filter((b) => b.old).length}, placeholders ${boxes.filter((b) => b.placeholder).length}; every built box shows its entry's text: ${(await consistent()) ? 'yes' : 'no'}`);
+  await clickAt('right', (await find('The answer is a position')) + 'The answer'.length);
+  await mark();
+  await page.keyboard.type('x');
+  await settle();
+  const typed = await page.evaluate(() => window.harness.right.state.doc.textContent.includes('The answerx is a position'));
+  console.log(`typing after it: "x" in the document ${typed ? 'yes' : 'no'}, refills ${(await fills()).length}; every built box shows its entry's text: ${(await consistent()) ? 'yes' : 'no'}`);
+  await page.keyboard.press(`${MOD}+z`);
+  await settle();
+  const undone = await chain();
+  await load('boxes=280x400');
+  const fresh = await chain();
+  console.log(`after the undo: ${cuts(undone)}; a fresh load under 280 × 400 boxes: ${cuts(fresh)}; equal: ${sameCuts(undone, fresh) ? 'yes' : 'no'}`);
+}
+
 // ---------------------------------------------------------------- moved
 
 await load('boxes=320x480&late=1');
