@@ -17,6 +17,11 @@
   .editor blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }
   .editor img { vertical-align: middle; }
   .editor li { position: relative; }
+  .boxes .editor .fragview { display: flex; flex-direction: column; gap: 16px; outline: none; padding: 0; }
+  .boxes .fragview-box, .boxes .fragview-placeholder { padding: 8px 12px; outline: 1px solid #ccc; flex: none; }
+  .boxes .fragview-placeholder { padding: 0; outline-style: dashed; background: repeating-linear-gradient(-45deg, #fafafa 0 8px, #f2f2f2 8px 16px); }
+  .boxes .fragview:focus-within .fragview-box { outline-color: #9c9; }
+  .boxes .fragview-box > div > :first-child { margin-top: 0; }
   .hl-word { background: #fff1a8; }
   ::highlight(hl-word) { background-color: #fff1a8; }
 </style>
@@ -25,7 +30,7 @@
 <div id="toolbar">loading</div>
 <div id="columns">
   <div class="col"><h3>EditorView</h3><div class="editor" id="left"></div></div>
-  <div class="col"><h3>FragmentedView, one infinite OverflowBox</h3><div class="editor" id="right"></div></div>
+  <div class="col"><h3>FragmentedView</h3><div class="editor" id="right"></div></div>
 </div>
 <script type="module" src="./main.js"></script>
 </body>
