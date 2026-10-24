@@ -6,7 +6,7 @@
  *
  * While the serializer writes, the renderer records for every DOM node it creates the model range that node stands for, in a `WeakMap`, so `pointAt` and `posAt` answer from the map and never walk the DOM against the document. The recording rides on the serializer's own recursion: `serializeNodeInner` and `serializeMark` are replaced on one serializer instance, the first with the six lines of the original written out so the content element is in hand. Those two methods are marked internal in `prosemirror-model` 1.25.12; a release that renames them breaks this file and nothing else.
  *
- * Positions inside the open ancestors are virtual (their opening tokens lie before `from`), so every recorded range is clamped to the slice: an open ancestor starts, for this map, at `from`, the first position the fragment shows.
+ * Positions inside the open ancestors are virtual (their opening tokens lie before `from`), so every recorded range is clamped to the slice: an open ancestor starts, for this map, at `from`, the first position the fragment shows. The exception is an ancestor that opens at `from` itself, when `from` is the first position inside one or more nodes (a cut at the first line of a list item): those nodes are wholly the fragment's, so the clamp is `openedAt(doc, from)`, the position before the outermost of them, and their opening positions are shown here.
  *
  * An empty textblock, or one ending in a hard break, gets a trailing `<br>` with no entry in the map, as `prosemirror-view` does, so it has a line's height and a place for the caret.
  *
@@ -45,7 +45,8 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
   if (from >= end) return { fragment, positions, from, to: end };
 
   const slice = doc.slice(from, end, true);
-  const clamp = (/** @type {number} */ p) => Math.min(end, Math.max(from, p));
+  const opened = openedAt(doc, from);
+  const clamp = (/** @type {number} */ p) => Math.min(end, Math.max(opened, p));
   /** @type {HTMLElement[]} */
   const marks = [];
   let cursor = from - slice.openStart;
@@ -98,7 +99,19 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
     const span = /** @type {Span} */ (positions.get(marks[i]));
     if (last) span.end = last.end;
   }
-  return { fragment, positions, from, to: end };
+  return { fragment, positions, from: opened, to: end };
+}
+
+/**
+ * The position before the outermost node that opens at `pos`: `pos` itself unless `pos` is the first position inside one or more nodes. A cut there opens those nodes, so the fragment that ends at the cut shows up to this position and the next fragment shows them from it.
+ * @param {PMNode} doc
+ * @param {number} pos
+ */
+export function openedAt(doc, pos) {
+  const $pos = doc.resolve(pos);
+  let end = pos;
+  for (let d = $pos.depth; d > 0 && $pos.start(d) === end; d--) end = $pos.before(d);
+  return end;
 }
 
 /**

@@ -8,14 +8,14 @@
  *
  * The forced first line: a box shorter than its first line still takes that line, so `to` is strictly greater than `from` and the chain advances. A line is a candidate for the cut only when it starts below the bottom of the first line's first box.
  *
- * The shown end: a cut at the start of a textblock (the first line of a paragraph) would render the ancestors opened at the cut as empty elements at the box's foot, so the box shows up to the position before the outermost node that opens at the cut, and its `pointAt` answers that end for the positions between it and the cut.
+ * The shown end: a cut at the start of a textblock (the first line of a paragraph) would render the ancestors opened at the cut as empty elements at the box's foot, so the box shows up to `openedAt(doc, to)`, the position before the outermost node that opens at the cut, and its `pointAt` answers that end for the positions between it and the cut.
  *
  * An inline replaced element (an image) counts as a line of its own height; a block with no text and no image cannot be cut before. The content element is a block formatting context (`display: flow-root`), so a first child's top margin stays inside the box the foot is measured from.
  *
  * @packageDocumentation
  */
 
-import { pointAt, posAt } from './slice-renderer.js';
+import { openedAt, pointAt, posAt } from './slice-renderer.js';
 
 /** @import { Node as PMNode } from 'prosemirror-model' */
 /** @import { FillResult, RenderedSlice, SliceRenderer } from './fragmentainer.js' */
@@ -49,9 +49,9 @@ export class OverflowBox {
     /** The positions the last cut fill held, the seed of the next trial's span. */
     this.span = 0;
     this.filledHeight = 0;
-    // An infinite box never cuts, so a height change cannot move its `to`; only a finite box listens.
+    // An infinite box never cuts, so a height change cannot move its `to`; only a finite box listens. The event leaves the observer's callback for the next frame: a listener that refills inside the callback changes the sizes being observed, and the browser reports a ResizeObserver loop.
     this.observer = height === Infinity ? null : new ResizeObserver(([entry]) => {
-      if (this.rendered && entry.contentRect.height !== this.filledHeight) this.moved.dispatchEvent(new Event('moved'));
+      if (this.rendered && entry.contentRect.height !== this.filledHeight) requestAnimationFrame(() => { if (this.rendered) this.moved.dispatchEvent(new Event('moved')); });
     });
   }
 
@@ -81,7 +81,7 @@ export class OverflowBox {
     const to = cut ? cut.pos : null;
     if (to != null) {
       this.span = to - from;
-      this.show(render(doc, from, shownEnd(doc, to)));
+      this.show(render(doc, from, openedAt(doc, to)));
     }
     this.to = to;
     this.filledHeight = this.content.getBoundingClientRect().height;
@@ -157,16 +157,4 @@ export class OverflowBox {
     this.observer?.disconnect();
     this.rendered = null;
   }
-}
-
-/**
- * The last position a box cut at `to` shows: `to`, or, when `to` is the first position inside one or more nodes, the position before the outermost of them.
- * @param {PMNode} doc
- * @param {number} to
- */
-function shownEnd(doc, to) {
-  const $to = doc.resolve(to);
-  let end = to;
-  for (let d = $to.depth; d > 0 && $to.start(d) === end; d--) end = $to.before(d);
-  return end;
 }
