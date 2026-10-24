@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Copied 2026-10-24 from beltype-studio-experiment, demos/schema-lab/index.html (last changed there at 4d47a70; the studio at e69a9dd), with its two sheets, unchanged below this comment: the generic-schema round's lab (203 elements, every hard shape), for phase 3 of prosemirror-fragview. Its fonts are served by BelType and 404 here; the sheets' other rules stand. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The schema lab</title>
+  <link rel="stylesheet" href="styles/type.css">
+  <link rel="stylesheet" href="styles/page.css">
+</head>
+<body>
+
+<section class="opening" id="opening">
+  <h1>The schema lab</h1>
+  <p>Every section below holds one shape that a schema for HTML finds hard, under a heading that says what the shape tests. The document is the test: parsed into the editor&rsquo;s state and written back, it should come out as it went in, byte for byte.</p>
+  <p>This page is page <span class="folio"></span> of <span class="page-total"></span>.</p>
+</section>
+
+<section class="shape" id="nested-inlines">
+  <h2>Inline elements nested, each with attributes</h2>
+  <p>A span holds a link that holds a span: <span class="tag" data-kind="outer" title="outer span"><a href="#tables" class="ref" data-n="1"><span class="inner" lang="la">tabula rasa</span></a> and after</span>. Then <strong class="loud"><em>strong around emphasis</em></strong>, and <em><strong>emphasis around strong</strong></em>, which a mark set cannot tell apart.</p>
+  <p>Two emphases side by side: <em class="a">first</em><em class="a">second</em>; and a small <small>aside</small>, an <abbr title="HyperText Markup Language">HTML</abbr> abbreviation, <kbd>Ctrl</kbd> + <kbd>C</kbd>, <var>x</var>, <samp>ok</samp>, <mark>marked</mark>, <q>a quotation</q>, <time datetime="2026-10-23">today</time>, <data value="42">forty-two</data>, <bdi>إيان</bdi>, a<br>line break and a long&shy;word with a <wbr>break point.</p>
+</section>
+
+<section class="shape" id="empty-inlines">
+  <h2>Empty inline elements that carry generated content</h2>
+  <p>The folio in the flow: this sentence is on page <span class="folio"></span>, and an empty marker follows <span class="marker"></span>here. An empty link that names nothing: <a href="#opening" class="empty-ref"></a>(it prints nothing).</p>
+</section>
+
+<section class="shape" id="transparent">
+  <h2>A transparent link wrapping blocks</h2>
+  <a class="card" href="#opening">
+    <h3>A card</h3>
+    <p>The whole card is one link: an <code>a</code> may hold flow content where its parent may.</p>
+  </a>
+</section>
+
+<section class="shape" id="tables">
+  <h2>A table in its full grammar</h2>
+  <table id="grammar">
+    <caption>Table 1. Caption, column groups, head, body, foot, spans</caption>
+    <colgroup><col><col class="num" span="2"></colgroup>
+    <thead>
+      <tr><th rowspan="2">Element</th><th colspan="2">Counts</th></tr>
+      <tr><th>source</th><th>state</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>caption</td><td>1</td><td>1</td></tr>
+      <tr><td>colgroup</td><td colspan="2">one, with two columns</td></tr>
+      <tr><td rowspan="2">cells</td><td>9</td><td>9</td></tr>
+      <tr><td>spans</td><td>3</td></tr>
+    </tbody>
+    <tfoot>
+      <tr><td colspan="3">The foot comes after the body.</td></tr>
+    </tfoot>
+  </table>
+</section>
+
+<section class="shape" id="description">
+  <h2>A description list grouped in divs</h2>
+  <dl>
+    <div class="pair"><dt>Flow</dt><dd>Most elements that can stand in a body.</dd></div>
+    <div class="pair"><dt>Phrasing</dt><dt>Inline</dt><dd>The text of a paragraph and what marks it up.</dd></div>
+  </dl>
+</section>
+
+<section class="shape" id="figure">
+  <h2>A figure with its caption last</h2>
+  <figure id="fig-1">
+    <svg viewBox="0 0 120 30" width="240" height="60" role="img" aria-label="Three bars">
+      <style>.bar { fill: #9c4a2c; } .bar.b { fill: #645e55; }</style>
+      <rect class="bar" x="0" y="10" width="30" height="20"/><rect class="bar b" x="40" y="4" width="30" height="26"/><rect class="bar" x="80" y="16" width="30" height="14"/>
+    </svg>
+    <figcaption>Figure 1. An inline <code>svg</code> with a <code>style</code> of its own.</figcaption>
+  </figure>
+</section>
+
+<section class="shape" id="details">
+  <h2>Details opened, summary first</h2>
+  <details open>
+    <summary>What a summary is</summary>
+    <p>The first child of a <code>details</code>, its label.</p>
+  </details>
+</section>
+
+<section class="shape" id="custom">
+  <h2>A custom element of unknown content</h2>
+  <lab-note data-tone="quiet">
+    <p>A custom element holding a paragraph, and inline: <lab-chip>chip</lab-chip>.</p>
+  </lab-note>
+</section>
+
+<section class="shape" id="math">
+  <h2>Mathematics in MathML</h2>
+  <p>The area is <math><mi>A</mi><mo>=</mo><mi>&pi;</mi><msup><mi>r</mi><mn>2</mn></msup></math>, set by the browser.</p>
+</section>
+
+<section class="shape" id="pre">
+  <h2>Preformatted text whose whitespace matters</h2>
+  <pre><code class="language-css">.folio::after {
+    content: counter(page);   /* three spaces */
+}</code>
+	a tab, then    four spaces</pre>
+</section>
+
+<section class="shape" id="comment">
+  <h2>A comment, between blocks and inside a line</h2>
+  <!-- a comment between two blocks -->
+  <p>A comment sits <!-- inside the line --> between these words.</p>
+</section>
+
+<section class="shape" id="style">
+  <h2>A style element in the body</h2>
+  <style>.styled-here { color: #2c6b3a; }</style>
+  <p class="styled-here">This paragraph is green because of the style element above it.</p>
+</section>
+
+<section class="shape" id="lists">
+  <h2>Ordered lists: start, reversed, value, three deep</h2>
+  <ol start="4"><li>four</li><li>five</li></ol>
+  <ol reversed><li>three</li><li>two</li><li>one</li></ol>
+  <ol><li value="10">ten</li><li>eleven</li><li value="20">twenty</li></ol>
+  <ol class="deep">
+    <li>One
+      <ol>
+        <li>One point one
+          <ol>
+            <li>One point one point one</li>
+            <li>One point one point two</li>
+          </ol>
+        </li>
+      </ol>
+    </li>
+    <li>Two</li>
+  </ol>
+</section>
+
+<section class="shape" id="quote">
+  <h2>A blockquote holding a list</h2>
+  <blockquote>
+    <p>Three things the quotation says:</p>
+    <ul><li>one</li><li>two</li><li>three</li></ul>
+  </blockquote>
+</section>
+
+<section class="shape" id="ruby">
+  <h2>Ruby annotations</h2>
+  <p><ruby>漢<rp>(</rp><rt>kan</rt><rp>)</rp>字<rp>(</rp><rt>ji</rt><rp>)</rp></ruby> is written with two characters.</p>
+</section>
+
+<section class="shape" id="edits">
+  <h2>Insertions and deletions, inline and around a block</h2>
+  <p>The price was <del datetime="2026-10-01">ten</del> <ins datetime="2026-10-02">twelve</ins> euros.</p>
+  <ins class="added"><p>A whole paragraph inserted.</p></ins>
+</section>
+
+<section class="shape" id="picture">
+  <h2>A picture with its sources</h2>
+  <p><picture>
+    <source srcset="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='20'%3E%3Crect width='40' height='20' fill='%23645e55'/%3E%3C/svg%3E" media="(min-width: 2000px)">
+    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='20'%3E%3Crect width='40' height='20' fill='%239c4a2c'/%3E%3C/svg%3E" alt="a small rectangle" width="40" height="20">
+  </picture> a rectangle, from its picture.</p>
+</section>
+
+<section class="shape" id="form">
+  <h2>A form with a fieldset, a legend and a select</h2>
+  <form action="#" onsubmit="return false">
+    <fieldset>
+      <legend>Paper</legend>
+      <label>Size <select name="size">
+        <optgroup label="ISO">
+          <option value="a5" selected>A5</option>
+          <option value="a4">A4</option>
+        </optgroup>
+        <option value="letter">Letter</option>
+      </select></label>
+      <label><input type="checkbox" name="bleed" checked> with bleed</label>
+      <button type="button">Print</button>
+    </fieldset>
+  </form>
+</section>
+
+<section class="shape" id="refused">
+  <h2>What the content model refuses</h2>
+  <p>Two shapes the browser keeps and the standard does not allow: a span holding a block, and a list holding text. The linter should name both.</p>
+  <div class="host"><span class="wrapper">before the block <div class="inside">a div inside a span</div> after the block</span></div>
+  <ul class="loose">text straight in the list<li>an item</li></ul>
+</section>
+
+</body>
+</html>
