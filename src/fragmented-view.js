@@ -8,7 +8,7 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`. `handleDOMEvents` runs first for every event the view listens to.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment). `handleDOMEvents` runs first for every event the view listens to.
  *
  * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position.
  *
@@ -136,6 +136,8 @@ export class FragmentedView {
       keydown: (e) => this.onKeyDown(e),
       beforeinput: (e) => this.onBeforeInput(e),
       paste: (e) => this.onPaste(e),
+      copy: (e) => this.onCopy(e),
+      cut: (e) => this.onCopy(e),
       compositionstart: (e) => this.onCompositionStart(e),
       compositionend: (e) => this.onCompositionEnd(e),
       mousedown: (e) => { if (!e.shiftKey) this.drawnAnchor = null; },
@@ -830,6 +832,24 @@ export class FragmentedView {
       return tr.selection.empty ? tr : tr.setSelection(Selection.near(tr.doc.resolve(tr.mapping.map(to)), -1));
     };
     if (!this.someProp('handleTextInput', (f) => f(this, from, to, text, deflt))) this.dispatch(deflt().scrollIntoView());
+  }
+
+  /**
+   * Copy and cut write the model's selection, not the browser's, which holds only the head's fragment: the slice serialized by the schema's `DOMSerializer` as HTML, and its text with a blank line between blocks. Cut then deletes the selection.
+   * @param {ClipboardEvent} event
+   */
+  onCopy(event) {
+    if (this.custom(event)) return;
+    this.readSelection();
+    const { state } = this;
+    const { selection } = state;
+    if (selection.empty || !event.clipboardData) return;
+    event.preventDefault();
+    const holder = document.createElement('div');
+    holder.appendChild(DOMSerializer.fromSchema(state.schema).serializeFragment(selection.content().content));
+    event.clipboardData.setData('text/html', holder.innerHTML);
+    event.clipboardData.setData('text/plain', state.doc.textBetween(selection.from, selection.to, '\n\n', '\ufffc'));
+    if (event.type === 'cut' && this.editable) this.dispatch(state.tr.deleteSelection().scrollIntoView().setMeta('uiEvent', 'cut'));
   }
 
   /** @param {ClipboardEvent} event */

@@ -175,6 +175,20 @@ section('The selection across fragments');
 
   console.log(`every built box shows its entry's text after typing over the cross-fragment selection: ${(await consistent()) ? 'yes' : 'no'}`);
 
+  // Copy across the cut: the model's selection, not the browser's (which holds the head's box only).
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(url).origin });
+  await page.evaluate(() => window.harness.reset());
+  await settle(200);
+  await clickAt('right', (await find('ProseMirror keeps')) + 3);
+  await clickAt('right', (await find('What the view has to do')) + 4, { shift: true });
+  await page.keyboard.press(`${MOD}+c`);
+  await settle();
+  const copied = await page.evaluate(async () => {
+    const { state } = window.harness.right;
+    return { clipboard: await navigator.clipboard.readText(), model: state.doc.textBetween(state.selection.from, state.selection.to, '\n\n', '\ufffc') };
+  });
+  console.log(`Mod-c over a selection from box 0 into box 1: the clipboard's text is the model's selection: ${copied.clipboard === copied.model ? 'yes' : 'no'} (${copied.clipboard.length} characters)`);
+
   // Mod-a.
   await page.evaluate(() => window.harness.reset());
   await settle(200);
