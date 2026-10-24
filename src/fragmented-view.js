@@ -2,7 +2,7 @@
  * `FragmentedView`: an `EditorState` rendered into a chain of fragmentainers, speaking `EditorView`'s protocol to the same plugins.
  *
  * @remarks
- * Constructed as `EditorView` is, with one more prop, `containers`, the `ContainerFactory` the view asks for each fragmentainer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
+ * Constructed as `EditorView` is, with two more props: `containers`, the `ContainerFactory` the view asks for each fragmentainer, and `words`, the words registry of the slice renderer it hands every fill (`sliceRenderer(words)`, built once; this package's own words when omitted). The plugin and the containers never see the registry: a container receives the renderer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
  *
  * Rendering. After every state the view fills the first dirty entry, and only that one: `fill` writes its DOM before its first wait, so the fragment is rendered inside `updateState`, and when its promise settles the view dispatches the `refilled` transaction. That transaction is the ripple: an entry whose `to` lands where the mapping put it leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range.
  *
@@ -25,11 +25,12 @@ import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import { DOMParser as PMDOMParser, DOMSerializer, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
-import { renderSlice, openedAt, TRAILING_BREAK } from './slice-renderer.js';
+import { sliceRenderer, openedAt, TRAILING_BREAK } from './slice-renderer.js';
 
 /** @import { EditorState, Transaction, Plugin, PluginView } from 'prosemirror-state' */
 /** @import { Node as PMNode } from 'prosemirror-model' */
-/** @import { ContainerFactory, ContainerHint, Fragmentainer } from './fragmentainer.js' */
+/** @import { ContainerFactory, ContainerHint, Fragmentainer, SliceRenderer } from './fragmentainer.js' */
+/** @import { Words } from './slice-renderer.js' */
 /** @import { Entry } from './fragments-plugin.js' */
 
 /**
@@ -38,8 +39,8 @@ import { renderSlice, openedAt, TRAILING_BREAK } from './slice-renderer.js';
  */
 
 /**
- * The props: `EditorView`'s direct props, read through `someProp` as `EditorView` reads them, the factory and the window policy.
- * @typedef {{ state: EditorState, containers: ContainerFactory, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
+ * The props: `EditorView`'s direct props, read through `someProp` as `EditorView` reads them, the factory, the words registry and the window policy.
+ * @typedef {{ state: EditorState, containers: ContainerFactory, words?: Partial<Words>, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
  */
 
 /** @typedef {{ node: globalThis.Node, offset: number }} DOMPoint */
@@ -87,6 +88,8 @@ export class FragmentedView {
   constructor(place, props) {
     /** @type {FragmentedViewProps} */
     this._props = props;
+    /** The slice renderer every fill is handed, for the `words` prop. @type {SliceRenderer} */
+    this.render = sliceRenderer(props.words);
     /** @type {EditorState} */
     this.state = withFragments(props.state);
     /** The root element holding the fragments; it is the editing host. */
@@ -396,7 +399,7 @@ export class FragmentedView {
     this.filling.set(entry.key, { doc, from: entry.from });
     this.filledFrom.set(entry.key, entry.from);
     this.fillCount.set(entry.key, (this.fillCount.get(entry.key) ?? 0) + 1);
-    container.fill(doc, entry.from, renderSlice).then(({ to, next }) => {
+    container.fill(doc, entry.from, this.render).then(({ to, next }) => {
       const mine = this.filling.get(entry.key);
       if (mine?.doc === doc && mine.from === entry.from) this.filling.delete(entry.key);
       if (this.destroyed || this.state.doc !== doc) return; // a later state is being filled
