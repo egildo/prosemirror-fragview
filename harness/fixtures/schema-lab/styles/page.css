@@ -1,0 +1,11 @@
+/* Copied 2026-10-24 from beltype-studio-experiment, demos/schema-lab/styles, with the lab (see index.html). */
+/* page.css — the schema lab (demos/schema-lab). See README.md. One A5 page box, unlayered, with the folio at the outer foot and the lab's name at the head. */
+@page {
+  size: A5;
+  margin: 18mm 18mm 20mm 18mm;
+  @top-center { content: "The schema lab"; font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 7pt; letter-spacing: 0.14em; text-transform: uppercase; color: #645e55; vertical-align: middle; }
+  @bottom-center { content: counter(page); font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 8.5pt; color: #23201c; vertical-align: middle; }
+}
+@page :first { @top-center { content: none; } }
+section.shape { break-before: auto; }
+section.opening { break-after: page; }

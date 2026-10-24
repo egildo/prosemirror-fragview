@@ -1,7 +1,9 @@
 /**
  * The parity harness: one document mounted twice side by side, in an `EditorView` on the left and in a `FragmentedView` on the right, each with its own state and the same plugin list. `window.harness` is what `scripts/parity.mjs` and `scripts/chain.mjs` drive.
  *
- * The query string sets the right-hand side: `boxes=320x480` gives it a chain of `OverflowBox`es of that width and height (one infinite box without it), `window=near` builds only the boxes near the viewport, `long=1` mounts the document ten times over (4 240 words) on both sides, and `late=1` adds an image whose `src` (`late.svg`) arrives after the fill.
+ * The query string sets the right-hand side: `boxes=320x480` gives it a chain of `OverflowBox`es of that width and height (one infinite box without it), `window=near` builds only the boxes near the viewport, `long=1` mounts the document ten times over (4 240 words) on both sides, and `late=1` adds an image whose `src` (`late.svg`) arrives after the fill. `schema=generic` mounts the studio's schema lab under its generic schema instead (`generic.js`), with `marks=structured` (the default) or `marks=nodes`; `long` and `late` do not apply to it.
+ *
+ * The page adopts the renderer's two sheets, `AWAY_SHEET` and `CONTINUATION_SHEET`, and under the generic schema the lab's own.
  *
  * @packageDocumentation
  */
@@ -16,7 +18,7 @@ import { keymap } from 'prosemirror-keymap';
 import { baseKeymap, toggleMark } from 'prosemirror-commands';
 import { inputRules, wrappingInputRule } from 'prosemirror-inputrules';
 import 'prosemirror-view/style/prosemirror.css';
-import { FragmentedView, OverflowBox, fragmentsKey } from '../src/index.js';
+import { FragmentedView, OverflowBox, fragmentsKey, AWAY_SHEET, CONTINUATION_SHEET } from '../src/index.js';
 import docHtml from './doc.html?raw';
 
 const query = new URLSearchParams(location.search);
@@ -25,8 +27,17 @@ const near = query.get('window') === 'near';
 const defaultTimes = query.get('long') === '1' ? 10 : 1;
 const late = query.get('late') === '1';
 if (boxes) document.body.classList.add('boxes');
+const generic = query.get('schema') === 'generic' ? await (await import('./generic.js')).setup(query.get('marks') === 'nodes' ? 'nodes' : 'structured') : null;
+if (generic) document.body.classList.add('generic');
+document.adoptedStyleSheets = [AWAY_SHEET, CONTINUATION_SHEET, ...(generic ? [generic.css] : [])].map((text) => {
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(text);
+  return sheet;
+});
 
-const schema = new Schema({ nodes: addListNodes(basic.spec.nodes, 'paragraph block*', 'block'), marks: basic.spec.marks });
+const schema = generic?.schema ?? new Schema({ nodes: addListNodes(basic.spec.nodes, 'paragraph block*', 'block'), marks: basic.spec.marks });
+/** Bold and Italic: ProseMirror's toggle on the basic schema, the studio's instance toggle under structured marks, none under inline nodes. */
+const toggle = (name) => (!schema.marks[name] ? () => false : generic ? generic.g.toggleStructured(schema.marks[name]) : toggleMark(schema.marks[name]));
 
 /** Every occurrence of the word "fragment" as an inline decoration: the left draws spans, the right paints a highlight. */
 const highlightWord = new Plugin({
@@ -44,14 +55,15 @@ const highlightWord = new Plugin({
 
 const plugins = [
   history(),
-  keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, 'Mod-b': toggleMark(schema.marks.strong), 'Mod-i': toggleMark(schema.marks.em) }),
+  keymap({ 'Mod-z': undo, 'Shift-Mod-z': redo, 'Mod-y': redo, 'Mod-b': toggle('strong'), 'Mod-i': toggle('em') }),
   keymap(baseKeymap),
-  inputRules({ rules: [wrappingInputRule(/^\s*>\s$/, schema.nodes.blockquote)] }),
+  ...(generic ? [] : [inputRules({ rules: [wrappingInputRule(/^\s*>\s$/, schema.nodes.blockquote)] })]),
   highlightWord,
 ];
 
-/** The fixed document, or its content `times` over for the scaling measure. */
+/** The fixed document, or its content `times` over for the scaling measure; under the generic schema, the lab parsed once (a doc is immutable, and one parse keeps the instances the same on both sides). */
 function freshDoc(times = defaultTimes) {
+  if (generic) return generic.doc;
   const holder = document.createElement('div');
   holder.innerHTML = docHtml.repeat(times);
   // The late image, in the second paragraph, so its arrival moves the first box's cut.
@@ -139,13 +151,20 @@ function find(text, occurrence = 0) {
 }
 
 window.harness = {
-  left, right, timings, find, hash, fills, transactions,
+  left, right, timings, find, hash, fills, transactions, generic,
   /** The chain as numbers: each entry's `from`, `to`, dirtiness and whether its fragment is built. */
   chain: () => right.fragments.map((e) => ({ key: e.key, from: e.from, to: e.to, dirty: e.dirty, built: !!e.container })),
   reset(times = defaultTimes) {
     left.updateState(freshState(times));
     right.updateState(freshState(times));
     timings.left.length = timings.right.length = timings.rightUpdate.length = timings.rightSettled.length = 0;
+    fills.length = transactions.length = 0;
+    paintToolbar();
+  },
+  /** Mount a document of the harness's schema on both sides, with the same plugins. */
+  mount(doc) {
+    left.updateState(EditorState.create({ doc, plugins }));
+    right.updateState(EditorState.create({ doc, plugins }));
     fills.length = transactions.length = 0;
     paintToolbar();
   },

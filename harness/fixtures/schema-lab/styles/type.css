@@ -1,0 +1,42 @@
+/* Copied 2026-10-24 from beltype-studio-experiment, demos/schema-lab/styles, with the lab (see index.html). */
+/* type.css — the schema lab (demos/schema-lab). See README.md. Source Serif 4 for the text, Source Sans 3 for headings; sizes and leading in pt on a 14pt unit. */
+@font-face { font-family: 'Source Serif 4'; src: url('/_beltype/vendor/beltype-fonts/sourceserif4/SourceSerif4-Variable.woff2') format('woff2-variations'); font-weight: 200 900; font-style: normal; }
+@font-face { font-family: 'Source Serif 4'; src: url('/_beltype/vendor/beltype-fonts/sourceserif4/SourceSerif4-Italic-Variable.woff2') format('woff2-variations'); font-weight: 200 900; font-style: italic; }
+@font-face { font-family: 'Source Sans 3'; src: url('/_beltype/vendor/beltype-fonts/sourcesans3/SourceSans3-Variable.woff2') format('woff2-variations'); font-weight: 200 900; font-style: normal; }
+
+html:root { font-family: 'Source Serif 4', Georgia, serif; font-size: 10pt; line-height: 14pt; color: #23201c; }
+body { margin: 0; }
+h1, h2 { font-family: 'Source Sans 3', Helvetica, sans-serif; margin: 0; break-after: avoid; }
+h1 { font-size: 20pt; line-height: 28pt; margin-bottom: 14pt; }
+h2 { font-size: 10.5pt; line-height: 14pt; font-weight: 600; margin: 21pt 0 7pt; }
+p { margin: 0 0 7pt; orphans: 2; widows: 2; }
+ul, ol, dl, blockquote, figure, details, pre, table, form, fieldset { margin: 0 0 7pt; }
+ol ol { margin: 0; }
+li { margin: 0; }
+code, kbd, samp { font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 9.5pt; color: #9c4a2c; }
+pre { font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 9pt; line-height: 14pt; background: #f4efe5; padding: 7pt; white-space: pre; }
+blockquote { margin-left: 1.5em; font-style: italic; }
+table { border-collapse: collapse; width: 100%; break-inside: avoid; font-size: 9pt; }
+caption { font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 8.5pt; text-align: left; caption-side: top; padding-bottom: 3.5pt; }
+th, td { border-bottom: 0.5pt solid #d9d2c4; padding: 2pt 4pt; text-align: left; vertical-align: top; }
+thead th { border-bottom: 0.75pt solid #23201c; }
+tfoot td { font-style: italic; }
+col.num { background: #f4efe5; }
+dt { font-weight: 600; }
+dd { margin: 0 0 3.5pt 1.5em; }
+figure { break-inside: avoid; }
+figcaption { font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 8.5pt; color: #645e55; }
+summary { font-family: 'Source Sans 3', Helvetica, sans-serif; font-weight: 600; }
+ins { text-decoration: underline; color: #2c6b3a; }
+del { text-decoration: line-through; color: #9c4a2c; }
+.tag { font-variant-caps: all-small-caps; letter-spacing: 0.05em; }
+.tag .inner { color: #9c4a2c; }
+.folio::after { content: counter(page); }
+.page-total::after { content: counter(pages); }
+.marker::before { content: "\2192\00A0"; color: #9c4a2c; }
+a.card { display: block; border: 0.5pt solid #d9d2c4; padding: 7pt; color: inherit; text-decoration: none; margin-bottom: 7pt; }
+lab-note { display: block; border-left: 2pt solid #9c4a2c; padding-left: 7pt; margin-bottom: 7pt; }
+lab-chip { font-family: 'Source Sans 3', Helvetica, sans-serif; font-size: 8.5pt; background: #e8e0cf; padding: 0 3pt; }
+fieldset { border: 0.5pt solid #d9d2c4; padding: 7pt; }
+legend { font-family: 'Source Sans 3', Helvetica, sans-serif; font-weight: 600; padding: 0 3pt; }
+label { display: block; margin-bottom: 3.5pt; }

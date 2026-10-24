@@ -6,13 +6,15 @@
 
 import { doc, p, ul, li, img } from 'prosemirror-test-builder';
 import { OverflowBox } from '../src/overflow-box.js';
-import { renderSlice } from '../src/slice-renderer.js';
+import { renderSlice, AWAY_SHEET, CONTINUATION_SHEET } from '../src/slice-renderer.js';
 
 const words = 'The browser fills and the engine reads the overflow of one long column of text '.repeat(6).trim();
 const d = doc(p(words), ul(li(p(words)), li(p(words))), p(img({ src: 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="20"/%3E' })));
 
 export async function run() {
   document.body.style.font = '16px/20px serif';
+  // The host's half of the renderer's words: the shallow siblings take no box, a divided box gives up its edges at the cut.
+  document.adoptedStyleSheets = [AWAY_SHEET, CONTINUATION_SHEET].map((text) => { const sheet = new CSSStyleSheet(); sheet.replaceSync(text); return sheet; });
   const results = {};
 
   const infinite = new OverflowBox({ width: 300 });

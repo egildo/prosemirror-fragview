@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from 'prosemirror-state';
-import { doc, p, ul, li } from 'prosemirror-test-builder';
+import { doc, p, ul, li, schema } from 'prosemirror-test-builder';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from '../src/fragments-plugin.js';
 
 /** A state whose chain is two clean entries cut at tag `<cut>`. */
@@ -101,4 +101,10 @@ test('an entry whose from reaches the end of the document is dropped, and the on
   const state = twoEntries(d);
   const next = state.apply(state.tr.delete(d.tag.cut, d.content.size - 1));
   assert.deepEqual(entries(next), [{ key: 0, from: 0, to: null, dirty: true }]);
+});
+
+test('a mark added inside an entry marks it dirty, though its step map moves nothing, and leaves the other clean', () => {
+  const state = twoEntries(doc(p('o<a>ne t<b>wo'), p('<cut>three')));
+  const next = state.apply(state.tr.addMark(state.doc.tag.a, state.doc.tag.b, schema.marks.strong.create()));
+  assert.deepEqual(entries(next).map((e) => [e.from, e.to, e.dirty]), [[0, state.doc.tag.cut, true], [state.doc.tag.cut, null, false]]);
 });

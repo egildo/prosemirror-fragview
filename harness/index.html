@@ -10,13 +10,13 @@
   #columns { display: flex; gap: 24px; align-items: flex-start; }
   .col { width: 520px; }
   .col h3 { font: 600 12px system-ui; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .05em; color: #666; }
-  .editor { font: 16px/1.5 Georgia, 'Times New Roman', serif; }
+  body:not(.generic) .editor { font: 16px/1.5 Georgia, 'Times New Roman', serif; }
   .editor .ProseMirror, .editor .fragview { outline: 1px solid #ccc; padding: 8px 12px; }
   .editor .ProseMirror:focus, .editor .fragview:focus { outline: 2px solid #4a7; }
-  .editor pre { background: #f4f1ea; padding: 6px 8px; font-size: 13px; }
-  .editor blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }
-  .editor img { vertical-align: middle; }
-  .editor li { position: relative; }
+  body:not(.generic) .editor pre { background: #f4f1ea; padding: 6px 8px; font-size: 13px; }
+  body:not(.generic) .editor blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }
+  body:not(.generic) .editor img { vertical-align: middle; }
+  body:not(.generic) .editor li { position: relative; }
   .boxes .editor .fragview { display: flex; flex-direction: column; gap: 16px; outline: none; padding: 0; }
   .boxes .fragview-box, .boxes .fragview-placeholder { padding: 8px 12px; outline: 1px solid #ccc; flex: none; }
   .boxes .fragview-placeholder { padding: 0; outline-style: dashed; background: repeating-linear-gradient(-45deg, #fafafa 0 8px, #f2f2f2 8px 16px); }

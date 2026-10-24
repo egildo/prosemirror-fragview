@@ -7,4 +7,4 @@
 export { FragmentedView, SELECTION_HIGHLIGHT } from './fragmented-view.js';
 export { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
 export { OverflowBox } from './overflow-box.js';
-export { renderSlice, pointAt, posAt, openedAt, TRAILING_BREAK } from './slice-renderer.js';
+export { renderSlice, pointAt, posAt, openedAt, addWord, TRAILING_BREAK, INSTANCE_STAMP, WORDS, AWAY, SPLIT, START, END, FRAGMENT, ADJOIN, AWAY_SHEET, CONTINUATION_SHEET } from './slice-renderer.js';
