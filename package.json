@@ -14,7 +14,8 @@
   ],
   "scripts": {
     "test": "node --test test/*.test.js",
-    "parity": "node scripts/parity.mjs"
+    "parity": "node scripts/parity.mjs",
+    "chain": "node scripts/chain.mjs"
   },
   "peerDependencies": {
     "prosemirror-model": "^1.25.0",

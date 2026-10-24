@@ -48,6 +48,19 @@ export async function run() {
   results.nextFirstText = next.content.textContent.slice(0, 20);
   results.fullFirstAfterCut = d.textBetween(to, to + 20);
 
+  // The forced first line: a 40px box under 60px lines still takes its first line, and a chain of such boxes reaches the end.
+  const tall = new OverflowBox({ width: 300, height: 40 });
+  tall.dom.style.font = '48px/60px serif';
+  document.body.appendChild(tall.dom);
+  const forced = (await tall.fill(d, 0, renderSlice)).to;
+  results.forced = { to: forced, shown: tall.content.textContent, firstLine: d.textBetween(1, forced) };
+  const chain = [0];
+  for (let from = forced; from != null && chain.length < 500; ) {
+    chain.push(from);
+    from = (await tall.fill(d, from, renderSlice)).to;
+  }
+  results.chain = chain;
+
   // Late truth: the image grows after the fill.
   const last = new OverflowBox({ width: 300, height: 400 });
   document.body.appendChild(last.dom);
@@ -57,5 +70,6 @@ export async function run() {
     last.content.querySelector('img').style.height = '80px';
     setTimeout(() => resolve(false), 500);
   });
+
   return results;
 }

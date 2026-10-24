@@ -1,9 +1,9 @@
-// usage: node scripts/parity.mjs [--headed] — the parity acts over the harness. Each act is performed identically on the EditorView (left) and on the FragmentedView (right), each from a fresh state: a click at the same model position through each view's own coordsAtPos, then the same keys. After the act, after Mod-z and after Shift-Mod-z, the two states' documents and selections are compared. Prints the table, then the typing timings.
+// usage: node scripts/parity.mjs [--headed] [--boxes] — the parity acts over the harness, the right-hand side under one infinite box, or with --boxes under a chain of 320 × 480 boxes. Each act is performed identically on the EditorView (left) and on the FragmentedView (right), each from a fresh state: a click at the same model position through each view's own coordsAtPos, then the same keys. After the act, after Mod-z and after Shift-Mod-z, the two states' documents and selections are compared. Prints the table, then the typing timings.
 import { open } from './browser.mjs';
 
 const MOD = 'ControlOrMeta';
 const SIDES = ['left', 'right'];
-const session = await open('harness/', { headless: !process.argv.includes('--headed') });
+const session = await open(process.argv.includes('--boxes') ? 'harness/?boxes=320x480' : 'harness/', { headless: !process.argv.includes('--headed') });
 const { page, context, url } = session;
 await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(url).origin });
 await page.waitForFunction(() => window.harness && document.getElementById('toolbar').textContent.includes('equal'));

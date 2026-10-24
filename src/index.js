@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 
-export { FragmentedView } from './fragmented-view.js';
-export { fragmentsPlugin, fragmentsKey, refilled, appended } from './fragments-plugin.js';
+export { FragmentedView, SELECTION_HIGHLIGHT } from './fragmented-view.js';
+export { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
 export { OverflowBox } from './overflow-box.js';
-export { renderSlice, pointAt, posAt, TRAILING_BREAK } from './slice-renderer.js';
+export { renderSlice, pointAt, posAt, openedAt, TRAILING_BREAK } from './slice-renderer.js';

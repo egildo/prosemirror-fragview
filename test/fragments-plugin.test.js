@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from 'prosemirror-state';
 import { doc, p, ul, li } from 'prosemirror-test-builder';
-import { fragmentsPlugin, fragmentsKey, refilled, appended } from '../src/fragments-plugin.js';
+import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from '../src/fragments-plugin.js';
 
 /** A state whose chain is two clean entries cut at tag `<cut>`. */
 function twoEntries(d) {
@@ -79,4 +79,26 @@ test('undo maps the chain back', async () => {
   undo(state, (tr) => { state = state.apply(tr); });
   assert.equal(entries(state)[1].from, d.tag.cut);
   assert.equal(state.doc.eq(d), true);
+});
+
+test('dirtied marks one entry dirty, with no step and outside the history', () => {
+  const state = twoEntries(doc(p('one'), p('<cut>two')));
+  const tr = dirtied(state.tr, 1);
+  assert.equal(tr.getMeta('addToHistory'), false);
+  assert.deepEqual(entries(state.apply(tr)).map((e) => e.dirty), [false, true]);
+});
+
+test('a change in the first word after a cut dirties the entry before it, and one past that word does not', () => {
+  const d = doc(p('one two <cut>three<a> four <b>five'));
+  const state = twoEntries(d);
+  assert.deepEqual(entries(state.apply(state.tr.insertText('x', d.tag.a))).map((e) => e.dirty), [true, true]);
+  assert.deepEqual(entries(state.apply(state.tr.delete(d.tag.cut, d.tag.cut + 2))).map((e) => e.dirty), [true, true]);
+  assert.deepEqual(entries(state.apply(state.tr.insertText('x', d.tag.b))).map((e) => e.dirty), [false, true]);
+});
+
+test('an entry whose from reaches the end of the document is dropped, and the one before runs to the end', () => {
+  const d = doc(p('one'), p('two <cut>three'));
+  const state = twoEntries(d);
+  const next = state.apply(state.tr.delete(d.tag.cut, d.content.size - 1));
+  assert.deepEqual(entries(next), [{ key: 0, from: 0, to: null, dirty: true }]);
 });
