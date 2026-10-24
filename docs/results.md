@@ -197,3 +197,144 @@ Under one infinite box, the regression: 18 of 19 acts equal, as in phase 1. The 
 - **The `ResizeObserver` reported a loop** when `moved`'s listener refilled inside the observer's callback. A refill changes the sizes being observed, and the browser fires an error event, which a page treats as an uncaught error. `moved` now leaves for the next frame.
 - **Live ranges cost.** The highlights held 80 live `Range`s on the long document (the decorated word occurs 8 times in each of its ten copies), and the browser updated each one on every DOM mutation. `StaticRange` took 0.5 ms off the key's median, from 2.20 to 1.70.
 - **`page.goto` waited for the late image.** Playwright's default waits for the `load` event, which waits for images, so the first measurement of `moved` saw the image already there. The script loads with `domcontentloaded`.
+
+# Phase 3, the slice renderer from the generic schema: results
+
+Written 2026-10-24, on the branch `phase/3-the-slice-renderer-from-the-generic-schema`. A record, not a plan: what phase 3 of [the plan](plan.md) built on phases 1 and 2, what the three new scripts measured, and what is still not done. Run it again with `npm test` (50 assertions, two of the suites in Chromium), `npm run lossless`, `npm run acts` and `npm run fragments`; the regressions are `npm run parity`, `npm run parity -- --boxes` and `npm run chain`. The harness takes `?schema=generic&marks=structured` (or `marks=nodes`), with `boxes=320x480` as before.
+
+## What was built
+
+| Module | Lines (phase 2) | What phase 3 changed |
+| :--- | ---: | :--- |
+| `src/slice-renderer.js` | 402 (228) | Shallow siblings put away, the words of a divided box, ordinals for an opened `ol`, structured marks rebuilt from their instances and stamped, unshown leaves drawn as nothing, the trailing break for textblocks only; `AWAY_SHEET`, `CONTINUATION_SHEET`, `addWord` and the word constants. |
+| `src/fragments-plugin.js` | 179 (171) | A step whose map moves nothing (a mark, an attribute) dirties the entries where the documents before and after it differ. |
+| `src/index.js` | 10 (10) | The new exports. |
+| `harness/generic.js` | 47 | The generic-schema mode: the studio's schema module, the lab laid out in an iframe under its own sheets, the parse (with `data-src` tags on request), the studio's document serializer. |
+| `harness/main.js`, `index.html` | 182, 37 (163, 37) | `?schema=generic&marks=…`, the renderer's two sheets adopted (in both modes), `harness.mount(doc)`, the harness's own typography kept off the lab. |
+| `harness/fixtures/schema-lab/` | 191 + 53 | The lab and its two sheets, copied from the studio with a note of their origin in each file. |
+| `vite.config.js` | 18 | The studio's folder allowed, and `prosemirror-model`, `-state` and `-transform` deduplicated. |
+| `scripts/` | 93, 182, 136 | `lossless.mjs`, `acts.mjs`, `fragments.mjs`. |
+| `test/` | 348 (305, counted with blank.html) | The renderer: three list cases, a reversed list cut at the end, two structured-marks cases, the words on the nested cases (14 cases in all, from 4). The plugin: a mark added inside an entry (12 cases). The box's fixture adopts the two sheets. |
+
+**The studio as a dependency.** `npm install -D` by path wrote `"beltype-studio-experiment": "file:../../../../Users/egildo/Privata/dev/beltype-studio-experiment"` and a symlink; the brief's `../../../Users/…` resolves to `/Volumes/Users`, one level short. Nothing in the studio was written. The schema module's import graph is `schema-generic.js` → `schema.js` (for `facsimile`) → `repeat.js` → `store.js` → `binds.js` → `fontoxpath`, and `csv.js`. All of it loads in vite with no alias: `fontoxpath` resolves from the studio's own `node_modules`. Vite needed two things, in `vite.config.js`. The first is `server.fs.allow` for the studio's real path, which lies outside this root. The second is `resolve.dedupe` for the three pure libraries: without it the schema module imports the studio's own copy of `prosemirror-model`, whose nodes the state and the view here would not recognize.
+
+## The renderer's words, and where each goes
+
+The words are BelType's Cicero's, from its registry (`packages/engine-cicero/src/data-beltype.js`), spelled exactly as there, in the one attribute `data-beltype`, added to what an element carries and never overwriting it.
+
+| Word | On | When | Rule (in the sheet named) |
+| :-- | :-- | :-- | :-- |
+| `away` | a shallow sibling: the outer element of a node, its attributes, no children | at every open depth whose node holds blocks (the document, and each divided ancestor), for the `$from.index(d)` children before the live one; none after the cut, since those are on later fragments; none for a textblock's inline children, which are the previous fragment's lines; none for a node the page does not draw | `display: none !important` (`AWAY_SHEET`) |
+| `split` | every element the fragment divides | opened at the start (it began on an earlier fragment) or cut at the end (it goes on later) | |
+| `end` | a divided piece that holds the box's end | opened at the start only | a `split` without `start` gives up its top margin, border and padding and its `text-indent`; an `li` also its `::marker` (`CONTINUATION_SHEET`) |
+| `start` | a divided piece that holds the box's beginning | cut at the end only | a `split` without `end` gives up its bottom margin, border and padding (`CONTINUATION_SHEET`) |
+| `fragment` | the root of a divided piece | the outermost divided element, a child of the fragment itself | |
+| `adjoin` | the first-child chain after a cut between boxes | the nodes that open where the fragment starts (from `openedAt(doc, from)` up to `from`), not divided | `margin-top: 0 !important` (`CONTINUATION_SHEET`) |
+
+Two attributes that are not words. **`value`** goes on the first displayed `li` of an `ol` the fragment opens, its ordinal by HTML's algorithm (§4.4.8: `start`, else the count of items when `reversed`, else 1; an earlier item's `value` resets the count; each item counts one, down when `reversed`), unless it has its own; and on the first `li` of a `reversed` `ol` without `start` cut at the end. **`data-txt-i`** carries the instance on every element written for a structured mark, and on an inline atom whose attributes carry an `instance` (the studio's empty inline). Under the nodes variant nothing is stamped.
+
+The brief named `cut` for an element divided at the end. The registry has no such word: Cicero writes `split` on every piece and `start` or `end` on the piece that holds an edge, so a resumed piece is `split` without `start` and a cut-off one is `split` without `end`. Those are the words used. `adjoin` was not in the brief. It is added because the shallow siblings took the harness's `.fragview-box > div > :first-child { margin-top: 0 }` off the box's first displayed element, and Cicero's word for that margin is `adjoin`.
+
+**Structured marks** are recognized by the mark type's spec (`structured: true`) and the instance's `{ instance, parent }`. **Unshown leaves** (whitespace and comments between blocks) are recognized by the node type's spec (`unshown: true`). Both conventions are the studio's own, and the renderer reads nothing else of the studio. The inline tree is rebuilt as the studio's serializer rebuilds it, with its `chainOf` copied (16 lines). Every mark element is made through `serializeMark`, so the position map records it; the studio's serializer makes them with `createElement`, which is why it could not be used as it is.
+
+## Lossless under boxes
+
+`npm run lossless`. The lab, 203 elements in the body, under 320 × 480 boxes: 7 fragments under structured marks (0–750, 750–1313, 1313–1779, 1779–2251, 2251–2525, 2525–2921, 2921–end) and 7 under inline nodes. Mounting changed no document (`doc.eq` against the parse).
+
+**The file side.** The state written back by the studio's document serializer, compared as the studio's `scripts/generic-schema.mjs` compares (attributes sorted, nothing else normalized, child lists aligned by their longest common subsequence):
+
+| Variant | Differences | Which |
+| :-- | --: | :-- |
+| structured marks | 6 | the `div.inside` lost from `span.wrapper` and added after it with a second `span.wrapper`, the text after it lost from the span; the `li` added in `ul.loose` and the text lost from the list |
+| every inline a node | 6 | the same, with the text after the div added as text instead of a second span |
+
+These are the lab's 6 known differences, all in the section written to be refused, as in the studio's runs three and four. Nothing else differs.
+
+**The page side.** Every element a fragment shows, traced to the file by the `data-src` tag of a second, tagged parse. Not in the file means it has no tag, or its tag or its parent (through the schema's `txt-run`) is not the file's. Under structured marks:
+
+| Fragment | Range | Elements | Away | Not in the file | Runs |
+| --: | :-- | --: | --: | --: | --: |
+| 0 | 0–750 | 34 | 0 | 0 | 0 |
+| 1 | 750–1313 | 47 | 2 | 0 | 0 |
+| 2 | 1313–1779 | 34 | 5 | 0 | 0 |
+| 3 | 1779–2251 | 29 | 9 | 0 | 0 |
+| 4 | 2251–2525 | 44 | 15 | 0 | 2 |
+| 5 | 2525–2921 | 53 | 16 | 0 | 1 |
+| 6 | 2921–end | 37 | 20 | 3 | 3 |
+
+Every one of the 67 shallow siblings is in the file, under its file parent, and empty. The renderer invented no element: no wrapper and no trailing break (no textblock in the lab is empty). The three elements of fragment 6 not where the file has them are the parse's repairs in the refused section: `div.inside` under the host instead of the span, the span's instance written again inside it (the instance is written three times in that fragment), and the `li` the parse created in `ul.loose`. Under inline nodes the same table holds, with 35 elements in fragment 6 and 2 not in the file (no repeated span). The 6 runs are the lab's 5 mixed contents, the fieldset's run counted twice because the cut at 2921 falls inside it, in the button's "Print".
+
+## Editable under boxes
+
+`npm run acts`: under 320 × 480 boxes with structured marks, real mouse and keys, each act from the lab as parsed. Bold is the studio's `toggleStructured`; Enter is `prosemirror-commands`' `baseKeymap`. The expected document is the lab as parsed and written back, with the act's change applied as a string replacement written in the script from the source. "Boxes equal" compares each box's DOM with a fresh render of its entry's range.
+
+| Act | Equal to the expected document | Valid | Boxes equal | Notes |
+| :-- | :-- | :-- | :-- | :-- |
+| "NOVA" typed inside `span.tag > a.ref > span.inner`, before "rasa" | yes | yes | 7 of 7 | `<span class="inner" lang="la">tabula NOVArasa</span>`, inside the link inside the outer span |
+| Bold across the nested inline, "holds a link … and" | yes | yes | 7 of 7 | selection 354 → 401; one new instance, written as 3 `strong` elements on the page, each stamped with it |
+| The same Bold, then Bold again | yes | yes | 7 of 7 | the paragraph as it was |
+| Enter at the end of "One point one point one", then "fresh" | yes | yes | 7 of 7 | `<li>One point one point one</li><li>fresh</li>`, the list's own whitespace after it |
+| "wide " typed inside the `pre`'s `code`, before "spaces" | yes | yes | 7 of 7 | the code mark goes on; the spaces and the tab stay |
+| Enter at the end of `<li value="10">ten</li>`, then "ten and a half" in the new item | yes | yes | 7 of 7 | `<li value="10">ten</li><li>ten and a half</li><li>eleven</li>`: the new item has no `value` |
+| A selection from fragment 0 into fragment 1 (745 → 755, in the heading the first cut divides), then Backspace | yes | yes | 7 of 7 | the highlight's ranges in boxes 0 and 1; the ten characters gone from the heading |
+| … and undone (Mod-z) | yes | yes | 7 of 7 | the chain back to 0–750, 750–1313, 1313–1779, 1779–2251, 2251–2525, 2525–2921, 2921–end |
+
+Eight of eight. The first run of the Bold act was equal on the document and wrong on the page; the fix is the first item under "What surprised".
+
+## Numbering and selectors
+
+`npm run fragments`. **Numbering.** The lab's lists section (positions 2180–2408) holds an `ol start="4"`, an `ol reversed`, an `ol` with `li value` attributes and an `ol` three deep. It was cut at the start of each of its 13 items' text in turn, as a box cuts at a line: one fragment from the section's start to `openedAt(cut)`, one from the cut to the section's end, with the view's renderer and the lab's and the renderer's sheets. `getComputedStyle(li, '::marker').content` is `normal`, and a counter in `content` computes to its specified form, so neither reads a number. Each marker's text was read from Chromium's accessibility tree instead, as the name of the item's ListMarker node (CDP `Accessibility.getFullAXTree`). It was compared with the same source item's marker in one rendering of the whole document. That rendering's markers are 4. 5., 3. 2. 1., 10. 11. 20., 1. 1. 1. 2. 2., HTML's ordinals for the file.
+
+| Cut at the start of | Markers compared | Equal | The resumed items |
+| :-- | --: | --: | :-- |
+| four, five, three, two, one | 13 each | 13 each | none |
+| ten, eleven, twenty | 13 each | 13 each | none |
+| One | 13 | 13 | none |
+| One point one | 13 | 13 | "One": no marker |
+| One point one point one | 13 | 13 | "One", "One point one": no marker |
+| One point one point two | 13 | 13 | "One", "One point one": no marker |
+| Two | 13 | 13 | none |
+
+Before the reversed-list fix, the cuts at "two" and "one" read 12 and 11 of 13: the fragment before the cut numbered "three" 1 and then 2 (see below).
+
+**Selectors.** Three rules were added to the page: `:nth-child(2)`, `h2 + *` and `li + li`, each setting a custom property registered as not inherited. Every element each 320 × 480 fragment shows (shallow siblings and the inside of `svg` and `math` aside) was compared with the same source element in the whole rendering. The fragments are 0 to 6, with 34, 45, 29, 20, 27, 36 and 13 elements. They matched the three rules 60, 20 and 10 times, the `li + li` rule on 8 items of fragment 4 alone, and **0 differ** from the whole rendering. The whole rendering against the file itself, asked with `matches` on the laid-out lab, differs on 6 of 193 elements, and none of them is the renderer's. Two are the nested `ol`s of "One" and "One point one", which a `txt-run` holding the item's text makes the second child. Two are the fieldset's `label`s, which a `txt-run` holds. Two are the refused section's repairs. Those six are the cost of the schema's runs for mixed content.
+
+## The regressions
+
+- **Parity, one infinite box**: 18 of 19, the red row the same demonstration of `EditorView`'s late selection read.
+- **Parity under 320 × 480 boxes**: 17 of 19, the same two as in phase 2 (that row, and the arrows' different line wraps at 320 pixels).
+- **Chain**: every geometry check holds. `posAtDOM(domAtPos(p))` comes back for 2 476 of 2 476 positions, `posAtCoords(coordsAtPos(p))` for 2 434 of 2 434, and `nodeDOM` is right for 13 of 13 blocks. The 40-pixel boxes advance. The undo restores the chain.
+- **The cuts moved**, because the continuation sheet takes the top margin off a resumed piece and the adjoining chain. The harness document is now 0–599, 599–1149, 1149–1555, 1555–2109, 2109–end (phase 2: …1512, …2089), and the long document is 46 boxes instead of 47.
+- **Timings on the long document under 320 × 480 boxes**: the key's update has a median of 1.70 ms (phase 2: 1.60), and the chain settles in 2.40 (2.30).
+
+## Owed by the studio
+
+Nothing blocks. Two exports would let the package drop its copies:
+- `chainOf`, exported from `src/schema-generic.js`. The renderer copies its 16 lines.
+- A hook in the page serializer that hands over the element made for each instance. `options.onMark` gives only the id. With the element, the renderer could run the studio's serializer itself, and take its image `src` mapping and its verbatim `style` with it.
+
+## What is not done
+
+- **Shallow siblings cost a fragment the number of blocks before it.** A fragment near the end of a long document writes every earlier top-level block, shallow. ponytail: one element per earlier sibling per fragment, quadratic over a chain; reuse a fragment's siblings from the one before it when it matters. The long document's key costs 0.1 ms more than in phase 2.
+- **Counters other than HTML's list numbering are not continued.** A shallow sibling takes no box and so increments nothing, so an author's counter (numbered headings, a figure counter) restarts in every fragment. Cicero delivers the counters at a page's start; this renderer only numbers `ol` items. Cicero's counter rules (`counter-reset`, `-increment`, `-set` as `none` on a resumed piece) are left out of `CONTINUATION_SHEET` for the same reason.
+- **`::before` and `::after` stay on every piece.** Cicero keeps `::before` on the start piece and `::after` on the end piece; only a resumed `li`'s marker is taken off here. `wrapped` (`box-decoration-break: clone`) is not read.
+- **A structured mark divided by a cut carries no word**, only its stamp. The words go on node elements.
+- **`id`s repeat on the page**: a divided element's pieces and an away sibling carry the source's `id`, as copies do.
+- **The inline list** (`list_inline`, the studio's `?lists=inline`) is not handled. The studio's page draws its whitespace leaves as empty text nodes; this renderer draws them as nothing.
+- **The read-back.** `readComposition` under structured marks re-mints instances, and its parse would read the renderer's own attributes (`data-txt-i`, `data-beltype`, an added `value`) into the attribute maps. Phase 5's read-back uses the stamps; until then a composition inside a structured mark is lossy in identity.
+- **Enter in a non-list twin** (a `td`, a `div`) is `baseKeymap`'s `splitBlock` here, not the studio's `splitTwin`. No act drives it.
+- **Measured only through the accessibility tree and `matches`.** The continuation sheet's margins were not compared with Cicero's pages.
+
+## What surprised
+
+- **Bold changed the state and not the page.** A mark step's map is empty, so phase 2's plugin, which dirties from the maps' changed ranges, marked no entry dirty, and no fragment was refilled. Phase 1's parity compared documents only and never saw it. Every step whose map reports no range is now diffed (`findDiffStart` and `findDiffEnd` of the documents before and after it). The acts compare every box with a fresh render, so a stale fragment is now red.
+- **A reversed list cut at the end numbered itself from what it held.** Chromium counts a `reversed` list without `start` down from the items present, and the fragment before a cut holds only those before it: "three" read 1. The first item now gets `value` from the whole list.
+- **The brief's `cut` is not Cicero's word**, and the registry had a better grammar: `split` on every piece, `start` and `end` on the piece holding an edge.
+- **The box cuts in the lab fall at line starts that are a textblock's start**, five of six (headings, a list item, a ruby, a run), since its sections are short. The first cut is the only one inside a textblock with five characters on each side, so the cross-fragment act selects inside that heading.
+- **The probe properties inherited.** The first selector run read every descendant of a matching element as matching. Registered as not inherited, they read the element alone.
+- **The lab's fonts are BelType's** (`/_beltype/vendor/…`) and are not served here, so the boxes are set in Georgia. Structured marks read display, padding, background and generated content, none of which the faces change.
+
+## Where the plan was wrong
+
+- **"Lossless (the saved file byte for byte)"** holds everywhere but the section written to be refused. The lab's 6 known differences stand under boxes as they did in the studio.
+- **The plan's phases name the studio's branch and notes.** Phase 3 was built here, as phases 1 and 2 were, with the studio as a linked dependency and its lab copied.
