@@ -6,15 +6,19 @@
  *
  * `apply` maps `from` with association −1 and `to` with association 1, so an insertion at a boundary falls inside both neighbours for a moment; both are marked dirty, and the refill of the first sets the second's `from` to its new `to`. A transaction that leaves the document alone changes nothing, and returns the same state object.
  *
- * The view's refills are transactions too: `refilled` sets an entry's `to` and clears its `dirty`, and `appended` adds the entry after the last. Both go through a meta under `fragmentsKey`, and both mark the transaction `addToHistory: false`, so no refill is ever undone.
+ * A step touches an entry when its changed range meets the entry's range, and also when it lands in the first word after the entry's `to`: the line before a cut ended there because that word did not fit, so a change to the word can let it fit and move the cut, though the word is shown by the next fragment. The word is the run of non-space characters at `to`; ponytail: break opportunities read as spaces only, so a cut in CJK text or after a hyphen dirties too little, Intl.Segmenter's line granularity when it matters.
+ *
+ * An entry whose `from` reaches the end of the document (no cursor position after it) is dropped, and the entry before it becomes the last, running to the end and dirty.
+ *
+ * The view's refills are transactions too: `refilled` sets an entry's `to` and clears its `dirty`, `appended` adds the entry after the last, and `dirtied` marks an entry dirty with no step (late truth: a fragment's content changed height after its fill). All go through a meta under `fragmentsKey`, and all mark the transaction `addToHistory: false`, so no refill is ever undone.
  *
  * @packageDocumentation
  */
 
-import { Plugin, PluginKey } from 'prosemirror-state';
+import { Plugin, PluginKey, Selection } from 'prosemirror-state';
 
 /** @import { Transaction } from 'prosemirror-state' */
-/** @import { Mapping } from 'prosemirror-transform' */
+/** @import { Node as PMNode } from 'prosemirror-model' */
 
 /**
  * One link of the chain.
@@ -34,6 +38,7 @@ import { Plugin, PluginKey } from 'prosemirror-state';
  * @typedef {object} FragmentsMeta
  * @property {{ key: number, to: number | null }} [refilled]
  * @property {{ from: number }} [appended]
+ * @property {{ key: number }} [dirtied]
  */
 
 /** @type {PluginKey<FragmentsState>} */
@@ -50,10 +55,11 @@ export function fragmentsPlugin() {
       init: () => ({ entries: [{ key: 0, from: 0, to: null, dirty: true }] }),
       apply(tr, value) {
         let entries = value.entries;
-        if (tr.docChanged) entries = entries.map((entry) => mapEntry(entry, tr.mapping));
+        if (tr.docChanged) entries = dropAtEnd(entries.map((entry) => mapEntry(entry, tr)), tr.doc);
         const meta = /** @type {FragmentsMeta | undefined} */ (tr.getMeta(fragmentsKey));
         if (meta?.refilled) entries = refill(entries, meta.refilled.key, meta.refilled.to);
         if (meta?.appended) entries = [...entries, { key: Math.max(-1, ...entries.map((e) => e.key)) + 1, from: meta.appended.from, to: null, dirty: true }];
+        if (meta?.dirtied) entries = entries.map((e) => (e.key === meta.dirtied?.key && !e.dirty ? { ...e, dirty: true } : e));
         return entries === value.entries ? value : { entries };
       },
     },
@@ -63,21 +69,48 @@ export function fragmentsPlugin() {
 /**
  * Map an entry through each step's map in turn, marking it dirty when a step's changed range touches it in that step's coordinates.
  * @param {Entry} entry
- * @param {Mapping} mapping
+ * @param {Transaction} tr
  * @returns {Entry}
  */
-function mapEntry(entry, mapping) {
+function mapEntry(entry, tr) {
   let { from, to, dirty } = entry;
-  for (const map of mapping.maps) {
+  tr.mapping.maps.forEach((map, i) => {
+    const reach = to == null ? null : wordEnd(tr.docs[i], to);
     map.forEach((oldStart, oldEnd) => {
-      // An insertion touches the range it lands in, ends included; a deletion or replacement touches what it overlaps.
-      const touched = oldStart === oldEnd ? oldStart >= from && (to == null || oldStart <= to) : oldEnd > from && (to == null || oldStart < to);
+      // An insertion touches the range it lands in, ends included; a deletion or replacement touches what it overlaps; either touches the first word after the cut.
+      const touched = oldStart === oldEnd ? oldStart >= from && (reach == null || oldStart <= reach) : oldEnd > from && (reach == null || oldStart < reach || oldStart === /** @type {number} */ (to));
       if (touched) dirty = true;
     });
     from = map.map(from, -1);
     if (to != null) to = map.map(to, 1);
-  }
+  });
   return from === entry.from && to === entry.to && dirty === entry.dirty ? entry : { key: entry.key, from, to, dirty };
+}
+
+/**
+ * The end of the run of non-space characters that starts at `pos`, inside its textblock; `pos` itself outside a textblock.
+ * @param {PMNode} doc
+ * @param {number} pos
+ */
+function wordEnd(doc, pos) {
+  const $pos = doc.resolve(pos);
+  if (!$pos.parent.isTextblock) return pos;
+  const rest = $pos.parent.textBetween($pos.parentOffset, Math.min($pos.parent.content.size, $pos.parentOffset + 64), undefined, '\ufffc');
+  return pos + /** @type {RegExpExecArray} */ (/^\S*/.exec(rest))[0].length;
+}
+
+/**
+ * Drop the entries whose `from` has no cursor position after it, and let the last one left run to the end, dirty.
+ * @param {ReadonlyArray<Entry>} entries
+ * @param {PMNode} doc
+ */
+function dropAtEnd(entries, doc) {
+  const end = Selection.atEnd(doc).from;
+  let count = entries.length;
+  while (count > 1 && entries[count - 1].from >= end) count--;
+  if (count === entries.length) return entries;
+  const last = entries[count - 1];
+  return [...entries.slice(0, count - 1), { ...last, to: null, dirty: true }];
 }
 
 /**
@@ -115,6 +148,16 @@ function withMeta(tr, add) {
  */
 export function refilled(tr, key, to) {
   return withMeta(tr, { refilled: { key, to } });
+}
+
+/**
+ * The transaction that marks the entry `key` dirty, so the view refills it from its `from`.
+ * @param {Transaction} tr
+ * @param {number} key
+ * @returns {Transaction}
+ */
+export function dirtied(tr, key) {
+  return withMeta(tr, { dirtied: { key } });
 }
 
 /**
