@@ -338,3 +338,74 @@ Nothing blocks. Two exports would let the package drop its copies:
 
 - **"Lossless (the saved file byte for byte)"** holds everywhere but the section written to be refused. The lab's 6 known differences stand under boxes as they did in the studio.
 - **The plan's phases name the studio's branch and notes.** Phase 3 was built here, as phases 1 and 2 were, with the studio as a linked dependency and its lab copied.
+
+# Phase 4a, the two doors: results
+
+Written 2026-10-24, on the branch `phase/4a-the-two-doors`. A record, not a plan: the two doors phase 4 of [the plan](plan.md) keeps in this package for the paginator's own (`prosemirror-beltype`), what they do and do not do, and the regressions run again. Run it again with `npm test` (61 assertions, three of the suites in Chromium) and the five scripts; the invalidation act is the last but one section of `npm run chain`.
+
+## What was built
+
+| Module | Lines (phase 3) | What phase 4a changed |
+| :--- | ---: | :--- |
+| `src/slice-renderer.js` | 463 (402) | The `Words` registry and `DEFAULT_WORDS`; `sliceRenderer(words)` returns a renderer for a registry or part of one, and `renderSlice` is the default's; `awaySheet(words)` and `continuationSheet(words)`, with `AWAY_SHEET` and `CONTINUATION_SHEET` the default's text; `addWord` takes the attribute. The constants `WORDS`, `AWAY`, `SPLIT`, `START`, `END`, `FRAGMENT` and `ADJOIN` are gone. |
+| `src/fragmented-view.js` | 974 (949) | The `words` prop, from which the view builds its renderer once and hands it to every fill; `invalidate()`; `setProps` invalidates on a new `containers` or `words`; a fill whose container was released since is ignored. |
+| `src/fragments-plugin.js` | 179 (179) | `dirtied(tr)` with no key marks every entry dirty. The mapping is untouched. |
+| `src/fragmentainer.js`, `src/index.js` | 69, 10 | A comment no longer names an engine; the new exports. |
+| `harness/main.js` | 188 (182) | The view is given the default registry explicitly, and `harness.words` is it, for the scripts; `harness.resize(width, height)`. |
+| `scripts/` | | `lossless.mjs` and `fragments.mjs` read the words through the registry; `chain.mjs` gains the invalidation act. |
+| `test/` | | The renderer under another registry (3 cases and 1 assertion), the two sheets as functions (1), `dirtied` with no key (1), the view's invalidation in Chromium (3, `fragmented-view.test.js`); the naming sweep is no longer to do. |
+
+## The words registry
+
+The registry is `{ attribute, fragment, split, start, end, away, adjoin }`. The default, `DEFAULT_WORDS`, is `data-fragview` with the six words in plain English, as they were: they say what they mean, and only the attribute named an engine. `data-fragview` is the package's own name, already the marker of the view's selection style (`style[data-fragview]`), which carries an empty value and so matches no word. A partial registry takes the rest from the default, so `prosemirror-beltype` passes `{ attribute: 'data-beltype' }` and gets Cicero's spellings, which are these.
+
+The renderer is a factory, `sliceRenderer(words)`, rather than a fourth argument of `renderSlice`, so `Fragmentainer.fill(doc, from, render)` and the `SliceRenderer` type are as they were: a container receives a renderer and never learns a word. The view builds it once from its `words` prop. The plugin never sees the registry, and neither do `pointAt`, `posAt` and `openedAt`, which never read the attribute: the position map holds no words. The words were read in three places inside the renderer, adding a word, finding an `ol`'s first displayed item past the siblings put away, and marking a divided piece's root `fragment`; all three read the registry.
+
+The lab's sheets (`harness/fixtures/schema-lab/styles/`) select on no word, so the harness takes the default and passes it explicitly. Two scripts read the attribute (`lossless.mjs` counts the siblings put away, `fragments.mjs` skips them and reads the resumed items' words); they read it from `harness.words` and from `DEFAULT_WORDS`.
+
+## Invalidation
+
+`invalidate()` is the view's word for "the conditions every fill was made under have changed". It releases every built container and removes its element, drops every placeholder and every hint, and dispatches `dirtied(state.tr)`, a transaction with no step that marks every entry dirty, outside the history as every refill is. The next update finds the first entry dirty and unbuilt, asks the factory for a container, and the ripple refills the rest in order, each in a container the factory makes anew. `setProps` calls it when given a new `containers` or a new `words`, since a fragment drawn by the old factory or with the old words is stale.
+
+It is a transaction because the chain's dirtiness lives in plugin state and every other change to it is one: a collaborator, a plugin view or a `dispatchTransaction` sees it as it sees a refill. The containers are the view's and are released on the view alone, before the dispatch, so the update that follows can only build. The name says what the caller knows, that what was filled is no longer good, and nothing about how the view repairs it; it takes no argument because nothing partial is offered.
+
+What it does not do: it keeps the entries' keys and ranges, which the ripple corrects, and so a chain that grows or shrinks under the new conditions does so through `appended` and `refilled` as on any edit; it keeps the last box height for the placeholders until the first new fill measures one; and it does not know what changed, so a sheet that moves one page refills every page.
+
+`npm run chain`, the invalidation act. The harness document under 320 × 480 boxes (0–599, 599–1149, 1149–1555, 1555–2109, 2109–end), then `harness.resize(280, 400)`:
+
+| What | Measured |
+| :-- | :-- |
+| The transactions | `dirtied` (all 5 entries dirty), then 7 refills, the 5th and 6th with `appended` |
+| The chain after | 0–347, 347–796, 796–1198, 1198–1500, 1500–1936, 1936–2372, 2372–end: 7 boxes, all 280 px × 400 px, none of the old ones left, no placeholder, every box showing its entry's text |
+| Against a fresh load at 280 × 400 | the same cuts |
+| A key typed after it | in the document, 1 refill, every box consistent; Mod-z undoes the key, not the invalidation |
+
+Under the `near` window policy on the long document, scrolled to the middle, the same resize built the boxes in view and the first one again (6 boxes, all at the new size, each showing its entry's text), left one entry dirty past the viewport, to be filled when it comes near, and the chain grew from 28 entries to 33.
+
+`npm test`, `fragmented-view.test.js`: twelve paragraphs under 300 × 200 boxes, then `invalidate()` with the factory making 400 × 300 boxes: every box new and 400 × 300, no placeholder, the cuts a fresh view's; a transaction after it refills the first box, which shows the text typed; `setProps({ containers })` with a 250 × 150 factory does the same.
+
+**The demo.** `/Volumes/dev/alpha`'s page-size menu now calls `view.invalidate()`; the view is mounted once. Driven by Playwright on its own server: from 480 × 640 (3 boxes, 0–1238, 1238–2383, 2383–end) to 320 × 480 gave 5 boxes, every one 320 × 480, the first among them a new container; then 560 × 400 gave 4, every one 560 × 400. The chain was contiguous and every box showed its entry's text each time; a word typed after both changes reached the document and the box, and one Mod-z took it back; no page error.
+
+## The regressions
+
+Every count is phase 3's.
+
+- **`npm test`**: 61 of 61 (`main`: 52, the naming sweep among them marked to do; the 9 new are listed above).
+- **Parity, one infinite box**: 18 of 19, the same red row. **Under 320 × 480 boxes**: 17 of 19, the same two.
+- **Chain**: the harness document 0–599, 599–1149, 1149–1555, 1555–2109, 2109–end; `posAtDOM(domAtPos(p))` for 2 476 of 2 476 positions, `posAtCoords(coordsAtPos(p))` for 2 434 of 2 434, `nodeDOM` 13 of 13; the long document 46 boxes.
+- **Lossless**: 7 fragments under each variant, the same ranges, the 6 known differences, 67 siblings put away, 3 elements not in the file under structured marks and 2 under inline nodes.
+- **Acts**: 8 of 8, every box equal to a fresh render, 7 of 7.
+- **Fragments**: 13 of 13 markers at every one of the 13 cuts; the selectors matched 60, 20 and 10 times and 0 elements differ from the whole rendering; the whole rendering against the file, 6 of 193.
+
+## What is not done
+
+- **The registry covers the six words the renderer writes**, not a paginator's others (`slice:N`, `wrapped`, `artifact`, `has:`). A paginator that needs them writes them in its own fill, on the renderer's output.
+- **`id`s, the read-back and the rest of phase 3's list** are unchanged.
+- **Invalidation is all or nothing.** A change that moves one page (a late face in one paragraph) is `moved`'s, which dirties one entry; a change of conditions dirties all, and nothing between is offered.
+- **A new state does not invalidate.** `updateState` with a fresh state keeps every container whose chain key survives, as before: a fresh state is not a change of conditions, and an app that means one calls `invalidate()`.
+
+## What surprised
+
+- **A released container's fill could still record its answer.** The view's answer handler checked the document and the entry's `from`, both the same after an invalidation, so a fill in flight in a released box would have cleaned its entry with the old geometry's `to`, and taken the new fill's flight record with it. The handler now ignores a fill whose container is no longer the entry's. No earlier path released a container with a fill in flight: the window policy skips one that is filling.
+- **The six words needed no neutral spelling.** Only the attribute was the engine's; `split`, `start`, `end`, `fragment`, `away` and `adjoin` are plain English, so the default keeps them and a partial registry `{ attribute }` is the whole of the BelType package's choice.
+- **The demo's remount lost the history.** It made a new state from the old document and selection, and with it an empty history, so no edit made before a size change could be undone after it. `invalidate()` keeps the state, so undo reaches across a size change.
