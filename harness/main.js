@@ -41,14 +41,15 @@ const plugins = [
   highlightWord,
 ];
 
-function freshDoc() {
+/** The fixed document, or its content `times` over for the scaling measure. */
+function freshDoc(times = 1) {
   const holder = document.createElement('div');
-  holder.innerHTML = docHtml;
+  holder.innerHTML = docHtml.repeat(times);
   return DOMParser.fromSchema(schema).parse(holder);
 }
-const freshState = () => EditorState.create({ doc: freshDoc(), plugins });
+const freshState = (times = 1) => EditorState.create({ doc: freshDoc(times), plugins });
 
-/** Milliseconds from a keydown to the end of the `updateState` of the first transaction that changed the document after it, per side; and the FragmentedView's own update time per such transaction. */
+/** Milliseconds from a keydown to the end of the `updateState` of the first transaction that changed the document after it, with the layout forced, per side; and the FragmentedView's own update time per such transaction. */
 const timings = { left: [], right: [], rightUpdate: [] };
 const pending = { left: null, right: null };
 
@@ -56,6 +57,7 @@ function instrument(side) {
   return function dispatchTransaction(tr) {
     this.updateState(this.state.apply(tr));
     if (tr.docChanged && pending[side] != null) {
+      void this.dom.offsetHeight; // force the layout, so the time is the DOM's change laid out, on both sides
       timings[side].push(performance.now() - pending[side]);
       if (side === 'right') timings.rightUpdate.push(this.lastUpdateMs);
       pending[side] = null;
@@ -100,9 +102,9 @@ function find(text, occurrence = 0) {
 
 window.harness = {
   left, right, timings, find, hash,
-  reset() {
-    left.updateState(freshState());
-    right.updateState(freshState());
+  reset(times = 1) {
+    left.updateState(freshState(times));
+    right.updateState(freshState(times));
     timings.left.length = timings.right.length = timings.rightUpdate.length = 0;
     paintToolbar();
   },
