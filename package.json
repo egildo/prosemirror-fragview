@@ -1,0 +1,20 @@
+{
+  "name": "prosemirror-fragview",
+  "version": "0.0.0",
+  "description": "A fragmented view for ProseMirror: the editor state rendered into a chain of fragmentainers, each a component that pulls content from a position and gives back the position where it had to stop.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": { ".": "./src/index.js" },
+  "files": ["src", "docs/plan.md", "README.md"],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "peerDependencies": {
+    "prosemirror-model": "^1.25.0",
+    "prosemirror-state": "^1.4.0",
+    "prosemirror-transform": "^1.12.0"
+  },
+  "repository": { "type": "git", "url": "https://codeberg.org/egildo/prosemirror-fragview.git" },
+  "author": "Egildo Tagliareni",
+  "private": true
+}
