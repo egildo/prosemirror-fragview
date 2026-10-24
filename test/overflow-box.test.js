@@ -28,3 +28,10 @@ test('the next box continues from the cut', () => {
 test('a height change after the fill dispatches moved', () => {
   assert.equal(r.moved, true);
 });
+
+test('a box shorter than its first line still takes that line, and a chain of such boxes advances to the end', () => {
+  assert.ok(r.forced.to > 1, `the cut at ${r.forced.to}`);
+  assert.equal(r.forced.shown, r.forced.firstLine);
+  assert.ok(r.chain.every((from, i) => i === 0 || from > r.chain[i - 1]), 'every cut is past the one before');
+  assert.ok(r.chain.length > 10 && r.chain.length < 500, `${r.chain.length} boxes`);
+});
