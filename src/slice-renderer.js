@@ -18,7 +18,7 @@
  * - `adjoin` on the first-child chain after a cut between boxes: the nodes that open where the fragment starts (from `openedAt(doc, from)` to `from`), whose top margin adjoins the cut and is truncated. A fragment starts inside a textblock, as every cut does.
  * The two stylesheets a host adopts for these words are `AWAY_SHEET` and `CONTINUATION_SHEET`.
  *
- * ORDINALS. An `ol` the fragment opens shows its items from the live one, its earlier items `away` and so without boxes, so the first displayed `li` gets HTML's own `value` attribute, its ordinal by HTML's algorithm (§4.4.8: the list's `start`, else the count of its items when `reversed`, else 1; an earlier item's `value` resets the count; each item counts one, down when `reversed`), unless it carries a `value` of its own.
+ * ORDINALS. An `ol` the fragment opens shows its items from the live one, its earlier items `away` and so without boxes, so the first displayed `li` gets HTML's own `value` attribute, its ordinal by HTML's algorithm (§4.4.8: the list's `start`, else the count of its items when `reversed`, else 1; an earlier item's `value` resets the count; each item counts one, down when `reversed`), unless it carries a `value` of its own. A `reversed` list cut at the end holds fewer items than the source, and Chromium counts down from the items present, so its first item is numbered the same way.
  *
  * STRUCTURED MARKS. A mark type whose spec says `structured: true` carries `{ instance, parent }` among its attributes (the studio's generic schema, `buildSchema({ marks: 'structured' })`). For such marks the inline tree is rebuilt from each run's chain of instances, as the studio's own serializer does: adjacent runs sharing an instance share one element, the parent pointers fix the nesting, and ProseMirror's rank order is never used. Each element written for an instance carries `data-txt-i="<instance>"` (`INSTANCE_STAMP`), and so does an inline atom whose attributes carry an `instance` (the studio's empty inline), so a reparse can recover identity. A schema without structured marks is serialized as ProseMirror does, and stamps nothing.
  *
@@ -143,7 +143,9 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
       if (container) writeSiblings(container, $from.index(depth), /** @type {HTMLElement} */ (contentDOM));
       cursor = start + 1;
       serializer.serializeFragment(node.content, opts, /** @type {HTMLElement} */ (contentDOM));
-      if (container && contentDOM.nodeName === 'OL') numberFirst(container, /** @type {HTMLElement} */ (contentDOM));
+      // A reversed list without `start` counts down from its number of items, and a list cut at the end shows only some: it is numbered from the whole list too.
+      const list = container ?? (cutOff && contentDOM.nodeName === 'OL' && /** @type {Element} */ (contentDOM).hasAttribute('reversed') ? doc.nodeAt(start) : null);
+      if (list && contentDOM.nodeName === 'OL') numberFirst(list, /** @type {HTMLElement} */ (contentDOM));
       const content = { contentStart: clamp(start + 1), contentEnd: clamp(start + node.nodeSize - 1) };
       if (contentDOM === dom) Object.assign(span, content);
       else positions.set(contentDOM, { start: content.contentStart, end: content.contentEnd, ...content });

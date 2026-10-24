@@ -51,6 +51,7 @@ export function run() {
     ['lists, from the third item of a reversed list with a value', listDoc, at(listDoc, 'c'), null],
     ['lists, from the third item of a list that starts at 4', listDoc, at(listDoc, 'g'), null],
     ['lists, from the second item of a reversed list', listDoc, at(listDoc, 'i'), null],
+    ['lists, a reversed list cut before its third item', listDoc, 0, at(listDoc, 'c') - 2],
     ['structured marks, whole', markedDoc, 0, null],
     ['structured marks, from inside the inner run', markedDoc, 2, null],
   ];
