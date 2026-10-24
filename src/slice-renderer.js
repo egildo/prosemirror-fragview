@@ -1,5 +1,5 @@
 /**
- * The default `SliceRenderer`, and the two walks that read its position map: `pointAt` (a position to the DOM point that shows it) and `posAt` (a DOM point to the position it stands for).
+ * The slice renderer, made by `sliceRenderer(words)` for a words registry and kept as `renderSlice` for the default one, and the two walks that read its position map: `pointAt` (a position to the DOM point that shows it) and `posAt` (a DOM point to the position it stands for).
  *
  * @remarks
  * The slice is `doc.slice(from, to, true)`: with its parents included it is rooted at the document, so its content opens with the ancestors of `from` as partial nodes, and the schema's own `DOMSerializer` writes them as elements cut where the fragment begins (`<ul><li>` holding only what follows the cut). That is the hollow ancestor a page engine otherwise builds by hand, and the plan's first gift.
@@ -10,13 +10,13 @@
  *
  * An empty textblock, or one ending in a hard break, gets a trailing `<br>` with no entry in the map, as `prosemirror-view` does, so it has a line's height and a place for the caret. Only a textblock: an empty inline node (an empty `span` that carries generated content) is left empty.
  *
- * The fragment a paginator's CSS expects (phase 3, docs/plan.md). The renderer marks elements with the attribute `data-beltype`, a space-separated list of words, and uses exactly the words of BelType's Cicero (`packages/engine-cicero/src/data-beltype.js` in BelType, the registry), adding a word to what an element already carries and never setting the whole attribute:
+ * The fragment a paginator's CSS expects (phase 3, docs/plan.md). The renderer marks elements with one attribute holding a space-separated list of words, adding a word to what an element already carries and never setting the whole attribute. The attribute and the six words are a WORDS REGISTRY (`Words`), a parameter of `sliceRenderer` and of the two sheets: a paginator whose CSS reads these marks passes its own attribute and spellings, and the default, `DEFAULT_WORDS`, is this package's own (`data-fragview`, the words in plain English). Below, each word by its registry key:
  * - `away` on a SHALLOW SIBLING: at every open depth of the slice whose node holds blocks (the document, and each divided ancestor), the children before the live one, `$from.index(d)` of them, are written as empty elements with their tag and attributes, so `:nth-child`, `+` and `~` read as in the source. None are written after the cut: those siblings are on later fragments. A textblock's inline children before the cut are not written: they are the previous fragment's lines. A node the page does not draw (its spec says `unshown`) is no sibling.
  * - `split` on every element the fragment divides: an ancestor opened at the start (it began on an earlier fragment) or cut at the end (it goes on in a later one).
  * - `end` on a divided piece that holds the box's end (opened at the start only); `start` on one that holds its beginning (cut at the end only). A piece divided at both edges carries neither.
  * - `fragment` on the root of a divided piece, the outermost divided element, a child of the fragment itself.
  * - `adjoin` on the first-child chain after a cut between boxes: the nodes that open where the fragment starts (from `openedAt(doc, from)` to `from`), whose top margin adjoins the cut and is truncated. A fragment starts inside a textblock, as every cut does.
- * The two stylesheets a host adopts for these words are `AWAY_SHEET` and `CONTINUATION_SHEET`.
+ * The two stylesheets a host adopts for these words are `awaySheet(words)` and `continuationSheet(words)`; `AWAY_SHEET` and `CONTINUATION_SHEET` are the default registry's.
  *
  * ORDINALS. An `ol` the fragment opens shows its items from the live one, its earlier items `away` and so without boxes, so the first displayed `li` gets HTML's own `value` attribute, its ordinal by HTML's algorithm (§4.4.8: the list's `start`, else the count of its items when `reversed`, else 1; an earlier item's `value` resets the count; each item counts one, down when `reversed`), unless it carries a `value` of its own. A `reversed` list cut at the end holds fewer items than the source, and Chromium counts down from the items present, so its first item is numbered the same way.
  *
@@ -40,48 +40,108 @@ export const TRAILING_BREAK = 'fragview-trailing-break';
 /** The attribute that carries a structured mark's instance on the element written for it. */
 export const INSTANCE_STAMP = 'data-txt-i';
 
-/** The attribute of words, and the words, as BelType's Cicero spells them (its `data-beltype.js`). */
-export const WORDS = 'data-beltype';
-export const AWAY = 'away', SPLIT = 'split', START = 'start', END = 'end', FRAGMENT = 'fragment', ADJOIN = 'adjoin';
+/**
+ * The attribute the renderer marks elements with, and the six words it writes there. A paginator whose CSS reads these marks passes its own; a partial registry takes the rest from `DEFAULT_WORDS`.
+ * @typedef {object} Words
+ * @property {string} attribute The attribute holding the space-separated list of words.
+ * @property {string} fragment On the root of a divided piece.
+ * @property {string} split On every element the fragment divides.
+ * @property {string} start On a divided piece that holds the box's beginning.
+ * @property {string} end On a divided piece that holds the box's end.
+ * @property {string} away On a shallow sibling, which takes no box.
+ * @property {string} adjoin On the first-child chain after a cut between boxes.
+ */
 
-/** `[data-beltype~="word"]`. @param {string} word */
-const w = (word) => `[${WORDS}~="${word}"]`;
-
-/** The rule a host adopts so a shallow sibling takes no box: it stays an element, so structural selectors read as in the source. */
-export const AWAY_SHEET = `${w(AWAY)} { display: none !important; }`;
+/** This package's own registry: its attribute, and the words in plain English. @type {Readonly<Words>} */
+export const DEFAULT_WORDS = Object.freeze({ attribute: 'data-fragview', fragment: 'fragment', split: 'split', start: 'start', end: 'end', away: 'away', adjoin: 'adjoin' });
 
 /**
- * The rules a host adopts for a divided box, Cicero's own (its `WORDS_RULES`, without the counter and `wrapped` rules, since this renderer continues HTML's list numbering through `value` and no other counter): a resumed piece gives up the margin, border and padding at its top edge, its indent and its list marker, which stand on the piece that began it; a cut-off piece gives up its bottom margin, border and padding; the first-child chain after a cut between boxes gives up its top margin.
+ * A full registry from a partial one.
+ * @param {Partial<Words>} [words]
+ * @returns {Words}
  */
-export const CONTINUATION_SHEET = [
-  `${w(SPLIT)}:not(${w(START)}) { margin-top: 0 !important; border-top-width: 0 !important; padding-top: 0 !important; text-indent: 0 !important; }`,
-  `li${w(SPLIT)}:not(${w(START)})::marker { content: none; }`,
-  `${w(SPLIT)}:not(${w(END)}) { margin-bottom: 0 !important; border-bottom-width: 0 !important; padding-bottom: 0 !important; }`,
-  `${w(ADJOIN)} { margin-top: 0 !important; }`,
-].join('\n');
+const registry = (words) => ({ ...DEFAULT_WORDS, ...words });
+
+/**
+ * The selector of elements carrying `word`: `[attribute~="word"]`.
+ * @param {Words} words
+ * @param {string} word
+ */
+const carrying = (words, word) => `[${words.attribute}~="${word}"]`;
+
+/**
+ * The rule a host adopts so a shallow sibling takes no box: it stays an element, so structural selectors read as in the source.
+ * @param {Partial<Words>} [partial]
+ */
+export function awaySheet(partial) {
+  const words = registry(partial);
+  return `${carrying(words, words.away)} { display: none !important; }`;
+}
+
+/**
+ * The rules a host adopts for a divided box: a resumed piece gives up the margin, border and padding at its top edge, its indent and its list marker, which stand on the piece that began it; a cut-off piece gives up its bottom margin, border and padding; the first-child chain after a cut between boxes gives up its top margin. A paginator's own continuation rules go further (counters, `::before` and `::after`, `box-decoration-break: clone`); these are the ones this renderer's output needs, since it continues HTML's list numbering through `value` and no other counter.
+ * @param {Partial<Words>} [partial]
+ */
+export function continuationSheet(partial) {
+  const words = registry(partial);
+  const w = (/** @type {string} */ word) => carrying(words, word);
+  return [
+    `${w(words.split)}:not(${w(words.start)}) { margin-top: 0 !important; border-top-width: 0 !important; padding-top: 0 !important; text-indent: 0 !important; }`,
+    `li${w(words.split)}:not(${w(words.start)})::marker { content: none; }`,
+    `${w(words.split)}:not(${w(words.end)}) { margin-bottom: 0 !important; border-bottom-width: 0 !important; padding-bottom: 0 !important; }`,
+    `${w(words.adjoin)} { margin-top: 0 !important; }`,
+  ].join('\n');
+}
+
+/** `awaySheet` for the default registry. */
+export const AWAY_SHEET = awaySheet();
+
+/** `continuationSheet` for the default registry. */
+export const CONTINUATION_SHEET = continuationSheet();
 
 /**
  * Add a word to an element's list, keeping what it carries.
  * @param {Element} el
  * @param {string} word
+ * @param {string} [attribute] The registry's attribute; the default registry's when omitted.
  */
-export function addWord(el, word) {
-  const words = (el.getAttribute(WORDS) ?? '').split(/\s+/).filter(Boolean);
-  if (!words.includes(word)) el.setAttribute(WORDS, [...words, word].join(' '));
+export function addWord(el, word, attribute = DEFAULT_WORDS.attribute) {
+  const words = (el.getAttribute(attribute) ?? '').split(/\s+/).filter(Boolean);
+  if (!words.includes(word)) el.setAttribute(attribute, [...words, word].join(' '));
 }
 
 /** @type {WeakMap<Schema, DOMSerializer>} */
 const serializers = new WeakMap();
 
 /**
- * Render the slice of `doc` from `from` to `to` (to the end when `to` is null) with the schema's `DOMSerializer`, and record the position map.
+ * The slice renderer that writes the words of `words`, a registry or part of one: the view builds one from its `words` prop and hands it to every fill.
+ * @param {Partial<Words>} [words]
+ */
+export function sliceRenderer(words) {
+  const full = registry(words);
+  /**
+   * Render the slice of `doc` from `from` to `to` (to the end when `to` is null) with the schema's `DOMSerializer`, and record the position map.
+   * @param {PMNode} doc
+   * @param {number} from
+   * @param {number | null} to
+   * @param {Document} [document] The document to create nodes in; the global one when omitted.
+   * @returns {RenderedSlice}
+   */
+  return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document);
+}
+
+/** The slice renderer of the default registry. */
+export const renderSlice = sliceRenderer();
+
+/**
+ * @param {Words} words
  * @param {PMNode} doc
  * @param {number} from
  * @param {number | null} to
- * @param {Document} [document] The document to create nodes in; the global one when omitted.
+ * @param {Document} document
  * @returns {RenderedSlice}
  */
-export function renderSlice(doc, from, to, document = globalThis.document) {
+function render(words, doc, from, to, document) {
   const end = to ?? doc.content.size;
   const schema = doc.type.schema;
   let base = serializers.get(schema);
@@ -101,6 +161,7 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
   let cursor = from - slice.openStart;
   /** The depth of the last divided ancestor met on the way down the slice's open start. */
   let depth = 0;
+  const add = (/** @type {globalThis.Node} */ el, /** @type {string} */ word) => addWord(/** @type {Element} */ (el), word, words.attribute);
 
   // One instance per render, so the cursor and the map are this render's alone.
   const serializer = new DOMSerializer(base.nodes, base.marks);
@@ -131,10 +192,10 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
     const span = { start: clamp(start), end: clamp(start + node.nodeSize) };
     // Virtual positions: an ancestor opened at the start begins before what is shown, one cut at the end runs past it (its slice node closes after `end`).
     const resumed = start < opened, cutOff = start + node.nodeSize > end;
-    if (resumed || cutOff) addWord(/** @type {Element} */ (dom), SPLIT);
-    if (resumed && !cutOff) addWord(/** @type {Element} */ (dom), END);
-    if (cutOff && !resumed) addWord(/** @type {Element} */ (dom), START);
-    if (!resumed && !node.isInline && start >= opened && start < from) addWord(/** @type {Element} */ (dom), ADJOIN);
+    if (resumed || cutOff) add(dom, words.split);
+    if (resumed && !cutOff) add(dom, words.end);
+    if (cutOff && !resumed) add(dom, words.start);
+    if (!resumed && !node.isInline && start >= opened && start < from) add(dom, words.adjoin);
     if (node.isInline && node.isLeaf && structured && typeof node.attrs.instance === 'string') /** @type {Element} */ (dom).setAttribute(INSTANCE_STAMP, node.attrs.instance);
     if (contentDOM) {
       if (node.isLeaf) throw new RangeError('Content hole not allowed in a leaf node spec');
@@ -206,7 +267,7 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
     if (node.isText || node.type.spec.unshown) return null;
     const { dom } = DOMSerializer.renderSpec(document, base.nodes[node.type.name](node), null, node.attrs);
     const el = /** @type {Element} */ (dom.cloneNode(false));
-    addWord(el, AWAY);
+    add(el, words.away);
     return el;
   }
   /**
@@ -215,7 +276,7 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
    * @param {HTMLElement} ol
    */
   function numberFirst(list, ol) {
-    const first = [...ol.children].find((c) => !c.matches(w(AWAY)));
+    const first = [...ol.children].find((c) => !c.matches(carrying(words, words.away)));
     if (!first || first.nodeName !== 'LI' || integer(first.getAttribute('value')) != null) return;
     const step = ol.hasAttribute('reversed') ? -1 : 1;
     let n = integer(ol.getAttribute('start'));
@@ -234,7 +295,7 @@ export function renderSlice(doc, from, to, document = globalThis.document) {
 
   writeSiblings(doc, $from.index(0), fragment);
   serializer.serializeFragment(slice.content, options, fragment);
-  for (const el of fragment.children) if (el.matches(w(SPLIT))) addWord(el, FRAGMENT);
+  for (const el of fragment.children) if (el.matches(carrying(words, words.split))) add(el, words.fragment);
 
   // A mark's element was recorded before its content existed; its end is its last content's end. Inner marks were created after outer ones, so the reverse order settles the inner first.
   for (let i = marks.length - 1; i >= 0; i--) {

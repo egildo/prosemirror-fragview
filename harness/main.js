@@ -3,7 +3,7 @@
  *
  * The query string sets the right-hand side: `boxes=320x480` gives it a chain of `OverflowBox`es of that width and height (one infinite box without it), `window=near` builds only the boxes near the viewport, `long=1` mounts the document ten times over (4 240 words) on both sides, and `late=1` adds an image whose `src` (`late.svg`) arrives after the fill. `schema=generic` mounts the studio's schema lab under its generic schema instead (`generic.js`), with `marks=structured` (the default) or `marks=nodes`; `long` and `late` do not apply to it.
  *
- * The page adopts the renderer's two sheets, `AWAY_SHEET` and `CONTINUATION_SHEET`, and under the generic schema the lab's own.
+ * The view takes the default words registry, since no sheet here selects on a paginator's words (the lab's own select on none), and the page adopts the renderer's two sheets for it, `AWAY_SHEET` and `CONTINUATION_SHEET`, and under the generic schema the lab's own. `harness.words` is the registry, for the scripts that read the words.
  *
  * @packageDocumentation
  */
@@ -18,7 +18,7 @@ import { keymap } from 'prosemirror-keymap';
 import { baseKeymap, toggleMark } from 'prosemirror-commands';
 import { inputRules, wrappingInputRule } from 'prosemirror-inputrules';
 import 'prosemirror-view/style/prosemirror.css';
-import { FragmentedView, OverflowBox, fragmentsKey, AWAY_SHEET, CONTINUATION_SHEET } from '../src/index.js';
+import { FragmentedView, OverflowBox, fragmentsKey, DEFAULT_WORDS, AWAY_SHEET, CONTINUATION_SHEET } from '../src/index.js';
 import docHtml from './doc.html?raw';
 
 const query = new URLSearchParams(location.search);
@@ -117,7 +117,8 @@ function instrument(side) {
 }
 
 const left = new EditorView(document.getElementById('left'), { state: freshState(), dispatchTransaction: instrument('left') });
-const right = new FragmentedView(document.getElementById('right'), { state: freshState(), containers, window: near ? { build: 'near', margin: 1 } : { build: 'all' }, dispatchTransaction: instrument('right') });
+const words = DEFAULT_WORDS;
+const right = new FragmentedView(document.getElementById('right'), { state: freshState(), containers, words, window: near ? { build: 'near', margin: 1 } : { build: 'all' }, dispatchTransaction: instrument('right') });
 for (const [side, view] of [['left', left], ['right', right]]) view.dom.addEventListener('keydown', () => { pending[side] = performance.now(); }, true);
 
 function hash(value) {
@@ -151,7 +152,7 @@ function find(text, occurrence = 0) {
 }
 
 window.harness = {
-  left, right, timings, find, hash, fills, transactions, generic,
+  left, right, timings, find, hash, fills, transactions, generic, words,
   /** The chain as numbers: each entry's `from`, `to`, dirtiness and whether its fragment is built. */
   chain: () => right.fragments.map((e) => ({ key: e.key, from: e.from, to: e.to, dirty: e.dirty, built: !!e.container })),
   reset(times = defaultTimes) {

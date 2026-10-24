@@ -42,7 +42,7 @@ await page.evaluate(() => { document.getElementById('columns').style.display = '
 const rows = [];
 for (const cut of [null, ...cuts.cuts]) {
   const items = await page.evaluate(async (at) => {
-    const { renderSlice, openedAt } = await import('/src/index.js');
+    const { renderSlice, openedAt, DEFAULT_WORDS } = await import('/src/index.js');
     const { doc, section } = window.__fv;
     for (const el of document.querySelectorAll('.fv-measure')) el.remove();
     const place = (name, rendered) => {
@@ -51,7 +51,7 @@ for (const cut of [null, ...cuts.cuts]) {
       Object.assign(box.style, { width: '320px', display: 'flow-root' });
       box.append(rendered.fragment);
       for (const li of box.querySelectorAll('li')) li.setAttribute('data-fv', `${name}:${li.getAttribute('data-src')}`);
-      return [...box.querySelectorAll('li')].map((li) => ({ key: li.getAttribute('data-fv'), words: li.getAttribute('data-beltype') ?? '', value: li.getAttribute('value') }));
+      return [...box.querySelectorAll('li')].map((li) => ({ key: li.getAttribute('data-fv'), words: li.getAttribute(DEFAULT_WORDS.attribute) ?? '', value: li.getAttribute('value') }));
     };
     const whole = place('whole', renderSlice(doc, 0, null));
     if (at == null) return { whole };
@@ -105,7 +105,7 @@ const selectors = await page.evaluate(async () => {
   for (const [index, entry] of right.fragments.entries()) {
     const f = { index, compared: 0, matched: [0, 0, 0], differ: [] };
     for (const el of entry.container.content.querySelectorAll('[data-src]')) {
-      if ((el.getAttribute('data-beltype') ?? '').split(' ').includes('away') || el.closest('svg, math') !== null && el.closest('svg, math') !== el) continue;
+      if ((el.getAttribute(window.harness.words.attribute) ?? '').split(' ').includes(window.harness.words.away) || el.closest('svg, math') !== null && el.closest('svg, math') !== el) continue;
       const twin = inWhole.get(el.getAttribute('data-src'));
       if (!twin) continue;
       f.compared++;
