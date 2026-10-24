@@ -34,13 +34,18 @@ async function clickAt(pos, { bias = 1, shift = false } = {}) {
   if (shift) await page.keyboard.up('Shift');
   await page.waitForTimeout(60);
 }
-const state = () => page.evaluate(() => {
+const state = () => page.evaluate(async () => {
   const { right, generic } = window.harness;
+  const { renderSlice, openedAt } = await import('/src/index.js');
   const { anchor, head } = right.state.selection;
-  // Every built box shows the text of its entry's range, whitespace aside (the page draws no whitespace leaf).
-  const squash = (t) => t.replace(/\s+/g, '');
-  const shown = right.fragments.filter((e) => squash(e.container.content.textContent) === squash(right.state.doc.textBetween(e.from, e.to ?? right.state.doc.content.size))).length;
-  return { html: generic.serialize(right.state.doc), anchor, head, shown, fragments: right.fragments.length, valid: (() => { try { right.state.doc.check(); return true; } catch (e) { return String(e); } })() };
+  const doc = right.state.doc;
+  // Every built box shows what a fresh render of its entry's range would: no fragment the act changed was left stale.
+  const shown = right.fragments.filter((e) => {
+    const fresh = document.createElement('div');
+    fresh.append(renderSlice(doc, e.from, e.to == null ? null : openedAt(doc, e.to)).fragment);
+    return fresh.innerHTML === e.container.content.innerHTML;
+  }).length;
+  return { html: generic.serialize(doc), anchor, head, shown, fragments: right.fragments.length, valid: (() => { try { doc.check(); return true; } catch (e) { return String(e); } })() };
 });
 const original = await page.evaluate(() => window.harness.generic.serialize(window.harness.generic.doc));
 
@@ -171,7 +176,7 @@ const undone = await state();
 const undoDiff = difference(original, undone.html);
 rows.push({ name: '… and undone', equal: !undoDiff, diff: undoDiff, valid: undone.valid, fragments: undone.fragments, shown: undone.shown, note: `the chain ${await page.evaluate(() => window.harness.chain().map((e) => `${e.from}–${e.to ?? 'end'}`).join(', '))}` });
 
-console.log('| Act | Equal to the expected document | Valid | Boxes showing their range | Notes |\n| :-- | :-- | :-- | :-- | :-- |');
+console.log('| Act | Equal to the expected document | Valid | Boxes equal to a fresh render of their range | Notes |\n| :-- | :-- | :-- | :-- | :-- |');
 for (const r of rows) console.log(`| ${r.name} | ${r.equal ? 'yes' : '**no**'} | ${r.valid === true ? 'yes' : r.valid} | ${r.shown} of ${r.fragments} | ${r.note} |`);
 for (const r of rows) if (r.diff) console.log(`\n${r.name}:\n  expected: ${JSON.stringify(r.diff.expected)}\n  actual:   ${JSON.stringify(r.diff.actual)}`);
 await session.close();
