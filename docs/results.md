@@ -74,3 +74,126 @@ Milliseconds from `keydown` to the end of `updateState` of the transaction the k
 - **The parity harness needed the targets in the viewport.** The left column's lower half sat below Playwright's 1 000-pixel viewport, and a click there landed nowhere; the script scrolls each target into view before reading its coordinates. It cost one red row in the first run.
 - **The two views agree almost everywhere because the plugins do the work.** Enter, Backspace, Delete, Mod-a, Mod-b and the input rule are commands from `prosemirror-commands`, `prosemirror-inputrules` and the keymap, running against `view.state` and `view.dispatch`; the view's own defaults (a split, a target-range delete, a parsed `<br>`) ran in none of the acts. What the view had to get exactly right was the selection the commands read and the geometry the clicks used.
 - **The plan's phase plan names the studio** (a `fragview/` folder, a branch of the studio, `notes/fragview-results.md`, the clipboard from the studio's `src/clipboard.js`). Phase 1 was built in this repository instead, with the basic schema and its list nodes, its record here; the studio's clipboard was not ported.
+
+# Phase 2, fixed-height boxes and the chain: results
+
+Written 2026-10-24, on the branch `phase/2-fixed-height-boxes-and-the-chain`. A record, not a plan: what phase 2 of [the plan](plan.md) built on phase 1, what `scripts/chain.mjs` measured, and what is still not done. Run it again with `npm test` (29 assertions, two of the suites in Chromium), `npm run chain` (every act below), `npm run parity` (phase 1's acts under one infinite box, the regression) and `npm run parity -- --boxes` (the same acts under 320 × 480 boxes). The harness takes `?boxes=320x480`, `?window=near`, `?long=1` and `?late=1`.
+
+## What was built
+
+| Module | Lines (phase 1) | What phase 2 changed |
+| :--- | ---: | :--- |
+| `src/fragments-plugin.js` | 171 (128) | A step now also touches the entry before a cut when it lands in the first word after the cut (that word not fitting is why the line before the cut ended). An entry whose `from` has no cursor position after it is dropped, and the one before runs to the end. `dirtied(tr, key)` marks an entry dirty with no step, for late truth. |
+| `src/overflow-box.js` | 160 (120) | The trial is bounded: `from` plus a span of positions (twice the last fill's, 2 048 on a first fill), doubled until it reaches the end or holds two lines past the line of the cut. The forced first line. The shown end leaves out the nodes opened at the cut. `moved` leaves the `ResizeObserver` callback for the next frame. The content element is a block formatting context. |
+| `src/slice-renderer.js` | 228 (215) | `openedAt(doc, pos)`, the position before the outermost node that opens at `pos`. A slice that starts at such a position records those nodes with their own opening positions instead of clamping them to `from`. |
+| `src/fragmented-view.js` | 949 (635) | The chain filled in order, one dirty entry at a time. Clean fragments keep their DOM, their positions translated by the shift of their `from`. The window policy with placeholders and an estimate. The selection painted as one highlight across fragments, the browser's selection kept in the head's fragment, ArrowLeft at a cut. Geometry across the chain. Decorations clipped to each fragment and cached per fragment. Copy and cut from the model's selection. |
+| `harness/` | 232 (179) | The four query flags, a log of every fill and every transaction on the right, `select(side, anchor, head)`, and `late.svg`. |
+| `scripts/chain.mjs` | 355 | The acts below. `parity.mjs` gained `--boxes`. |
+| `test/` | 301 (258) | The plugin: `dirtied`, the first word after a cut, the drop at the end (11 cases in all). The box: a 40-pixel box under 60-pixel lines, and a chain of such boxes reaching the end (5 in all). |
+
+One answer to an open question of the plan: `fill` stays asynchronous by signature, and every late truth after it arrives through `moved`. The `OverflowBox` does all its work synchronously, so its promise settles in a microtask, and the view's ripple, one `refilled` transaction per fragment, completes before the browser's next task.
+
+## The chain in motion
+
+The harness document (424 words) under 320 × 480 boxes is five fragments: 0–599, 599–1149, 1149–1512, 1512–2089, 2089–end. The first build took five fills, the first 5.3 ms (it is the first layout of the page) and the others 1.0, 1.2, 0.8 and 0.3 ms.
+
+| Act | The chain mapped by the edit, before any fill | Refills | The chain after | Notes |
+| :-- | :-- | :-- | :-- | :-- |
+| One character typed in the first paragraph (the cut does not move) | 0–600, 600–1150, … every entry moved by one; only the first dirty | 1: box 0, 1.5 ms | 0–600, 600–1150, 1150–1513, 1513–2090, 2090–end; none dirty | The refill's `to` equals the mapped `to`, so the work ends there. Boxes 1 to 4 keep their DOM: the element that was their first child before the edit is still their first child after it. |
+| Undo of that character | 0–599, 599–1149, 1149–1512, 1512–2089, 2089–end: the chain before the edit, by mapping alone | 1: box 0 | equal to before the edit | A refill still ran, because the undo's step touched the first fragment's range, and the fragment's DOM must show the restored text. It changed no entry. |
+| Enter at the end of the first paragraph, then "A new line." (12 transactions) | 0–601, 601–1151, … after the Enter | 16: boxes 0, 1, 2, 3, 4 for the Enter, then box 0 alone for each of the 11 characters | 0–537, 537–1095, 1095–1513, 1513–2055, 2055–end | The new line pushes the first box's last line out; each cut moves back and the ripple reaches every box, all five of five on this document. A typed character after that refills one box. |
+| Undo of that edit (one Mod-z undoes it all) | 0–524, 524–1082, 1082–1500, 1500–2042, 2042–end | 5: boxes 0 to 4 | equal to before the edit | The mapping alone does not restore the chain here: the edit's cuts moved by refills, not by mapping, so the undo's mapping only takes away the 13 positions the edit added. The ripple restores the rest. |
+
+After each act every built box showed exactly the text of its entry's range (`textContent` against `doc.textBetween(from, to)`).
+
+## No re-render of the untouched
+
+Phase 1 re-rendered the whole fragment on every key; phase 2 fills only the dirty fragments, and a measuring fill renders about three boxes' worth of the document in two passes (a trial of twice the last span, then the box itself), not the rest of it. Milliseconds from `keydown` to the end of the `updateState` of the key's transaction, with the layout forced, over 30 typed keys; "the chain settled" runs to the last `refilled` transaction the key caused, with no fill in flight.
+
+| Document | Right side | Boxes (built) | `EditorView` median (max) | `FragmentedView`, the key's update | The chain settled | Its own `updateState` |
+| :--- | :--- | ---: | :--- | :--- | :--- | :--- |
+| 424 words | one infinite box | 1 (1) | 0.70 (1.20) | 1.20 (3.10) | 1.40 (3.40) | 1.00 (3.00) |
+| 4 240 words | one infinite box | 1 (1) | 1.00 (2.60) | 5.30 (6.60) | 6.00 (7.10) | 5.15 (6.40) |
+| 424 words | 320 × 480 boxes | 5 (5) | 0.75 (1.40) | 1.20 (2.00) | 1.50 (2.30) | 1.00 (1.70) |
+| 4 240 words | 320 × 480 boxes | 47 (47) | 1.00 (3.10) | 1.60 (2.90) | 2.30 (5.30) | 1.40 (2.30) |
+| 424 words | 320 × 480 boxes, window near | 4 (3) | 0.70 (2.80) | 1.10 (2.90) | 1.40 (3.20) | 1.00 (2.60) |
+| 4 240 words | 320 × 480 boxes, window near | 4 (3) | 1.00 (1.70) | 1.20 (3.50) | 1.85 (4.00) | 1.05 (2.70) |
+
+Under one infinite box the cost still grows with the document, as in phase 1 (5.30 ms at 4 240 words; phase 1 measured 4.35). Under boxes the fill is flat, but the key still costs more on the long document with every box built (1.60 ms against 1.20). A profiling run (wrapping the view's methods in the page, not kept in the repository) split the update, per key, short document against long. The fills went from 0.69 to 0.77 ms. The decoration paint went from 0.12 to 0.42 ms, of which the harness's own decorations plugin, which rebuilds a `DecorationSet` over the whole document on every state and costs the `EditorView` the same, went from 0.05 to 0.21 ms. Drawing the browser's selection went from 0.11 to 0.28 ms, the browser's work in a larger editing host. Two changes took the long document from 2.20 to 1.60 ms: the highlights hold `StaticRange`s instead of live `Range`s, and a fragment keeps its decoration ranges while its DOM and the decorations over it are unchanged. A live `Range` is updated by the browser on every DOM mutation while a highlight holds it. With `window: near` the long document costs what the short one does.
+
+## The selection across fragments
+
+Each act on the five-fragment chain; "box" is the fragment's index, and the browser's selection is read from `getSelection()`.
+
+| Act | The model's selection | The browser's selection | The highlight's ranges |
+| :-- | :-- | :-- | :-- |
+| Click in box 0, Shift-click in box 1 | 350 → 702 | in box 1, from its first point to the head | boxes 0 and 1 |
+| Shift+ArrowRight six times from three before the cut at 599 | 596 → 602 | in box 1: the head crossed with one key per position | boxes 0 and 1 |
+| ArrowLeft six times from 602 | heads 601, 600, 599, 598, 597, 596 | collapsed in box 0 | none |
+| ArrowRight six times back | heads 597, 598, 599, 600, 601, 602 | collapsed in box 1 | none |
+| Shift+ArrowLeft six times from 602 | 602 → 596 | in box 0 | boxes 0 and 1 |
+| Typing "Z" over 502 → 628, across the cut | replaced in the model | collapsed | none |
+| Mod-c over 350 → 702 | | | the clipboard's text is the model's selection, 352 characters |
+| Mod-a | 0 → 2475 | in box 4, from its first point to the end | boxes 0, 1, 2, 3 and 4, every built box |
+
+Typing over the cross-fragment selection touched boxes 0 and 1, moved their cuts, and refilled boxes 0 to 4. The documents were equal with the `EditorView` typing the same key over the same selection. The cut at 599 lies inside a paragraph, so 599 is both the end of box 0's last line and the start of box 1's first; the caret at 599 stands at the start of box 1, and ArrowLeft from there is the view's own move to 598. Without it, the browser's ArrowLeft goes to the end of box 0, the same position 599, and a second key is needed. ArrowRight needs nothing: the browser goes from 598 to the end of box 0, the view reads 599 and draws it at the start of box 1.
+
+## Geometry across the chain
+
+| Question | Answer on the five-fragment chain |
+| :-- | :-- |
+| `domAtPos` at each of the four cuts | In the next box, every time. `coordsAtPos` at each cut lies inside the next box's rectangle, and `fragmentAt` names the next entry. |
+| `posAtDOM(domAtPos(p))` for every position 0–2475 | 2 476 of 2 476 come back. Before `openedAt`, 1147 and 1148, the positions opening a list item whose first line is the cut at 1149, came back as 1147. |
+| `posAtCoords(coordsAtPos(p))` for every position in a textblock | 2 434 of 2 434 come back. |
+| `nodeDOM` of each top-level block | 13 of 13 lie in the box `fragmentAt` names for the block's first content position. Two of them, a paragraph and a heading, open at a cut and are found in the next box. |
+
+## The forced first line
+
+A box shorter than its first line takes that line anyway, so `to` is strictly greater than `from` and the chain advances. The rule is that a line is a candidate for the cut only when its top lies at or below the bottom of the first line's first box. With `?boxes=320x40` the harness document is 71 boxes, every `to` greater than its `from`, the last running to the end. Box 0 holds "The composition ", the heading's first line, 48 pixels tall in a 40-pixel box (`to` 17). The suite's case is a 40-pixel box under 60-pixel lines.
+
+## The window policy
+
+`window: { build: 'all' }` is the default and builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, one more on each side, and the fragment that holds the selection's head, so the caret always has a box. Its choices:
+
+- **An unbuilt entry is a placeholder, as tall as the last built box.** For a fixed-height box that is exact. The last entry, when unbuilt and running to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built entries, box heights plus the gaps between them (the view's `row-gap`). That is the box height times an estimate of the boxes, not the measured line height times an estimate of the lines, because the box, not the line, is the unit a placeholder replaces.
+- **The chain is cut only as far as it is needed.** A dirty entry is filled when it is near, or when a near entry follows it, because the ripple must pass it to know where the near one starts; a fragment filled only to be passed is released again. Beyond the last near entry the ripple stops, and the dirty entry waits until it comes near.
+- **`coordsAtPos` for a position in an unbuilt fragment answers an estimate**: a zero-height box at the placeholder's left, at the position's share of the entry's range down it, marked `estimate: true`. `domAtPos` throws a `RangeError` that says the fragment is not built. Building on demand was refused for two reasons: a geometry query that writes DOM lets a read cause a fill, and the fill's answer arrives in a promise, so a dirty entry's position could not be known before the call returned.
+- **An `IntersectionObserver` on the placeholders** asks for a pass at the next frame when one comes into view. The pass then reads every element's rectangle against the window's viewport.
+
+Measured on the 4 240-word document:
+
+| Act | Entries | Built | Fills | Notes |
+| :-- | ---: | :-- | ---: | :-- |
+| First build, the top in view | 4 | 0, 1, 2 | 3 | The last entry, 1512–end, is a placeholder of 24 048 pixels; the page is 25 668 pixels tall, against 24 132 when every box is cut (the estimate 6 % high). |
+| `coordsAtPos(17325)`, in the unbuilt rest | | | | `{ top: 17968, estimate: true }`; `domAtPos` throws "Position 17325 is not shown by any fragment (its fragment is not built)". |
+| Scrolled to the middle | 29 | 0, 23–27 | 25 | 405 ms of wall clock, the script's settle included. Box 0 stays built: it holds the head. |
+| Scrolled to the bottom | 47 | 0, 44, 45, 46 | 19 | The chain complete, the last 24688–end. |
+| A line inserted at the top, the top in view | 47 | 0, 1, 2 | 14 | Boxes 0, 1, 2 for the Enter, then box 0 for each character; box 3 left dirty, unbuilt. |
+| Then scrolled to the middle | 47 | 0, 22–26 | 14 | The ripple resumed from box 3 and stopped by itself before box 22, where a cut landed where the mapping put it; nothing dirty; every built box shows its entry's text. |
+
+## Late truth: moved
+
+With `?late=1` the second paragraph opens with an image whose `src` the script holds back for 800 ms, so it arrives after the chain is built. Before it: 0–601, 601–1151, 1151–1514, 1514–2091, 2091–end. When it arrived the first box's content grew. Its `ResizeObserver` dispatched `moved` at the next frame, and the view dispatched `dirtied` for box 0, 30.3 ms after the image's response ended (decoding, a frame and the deferral). The ripple refilled boxes 0 to 4 (1.1, 0.7, 0.7, 0.7 and 0.2 ms), the last `refilled` 3.8 ms after the `dirtied`. After: 0–403, 403–1072, 1072–1485, 1485–1970, 1970–end. The 120-pixel image pushed five 24-pixel lines (198 positions) out of the first box.
+
+## The parity acts again
+
+Under one infinite box, the regression: 18 of 19 acts equal, as in phase 1. The red row is again the demonstration of `EditorView`'s late selection read, Mod-b pressed straight after eight Shift+Arrows. In this run `EditorView` bolded four of the eight characters and kept the four-character selection, so the selections differ too. The `FragmentedView` bolded all eight, as every time. Under 320 × 480 boxes, 17 of 19. Besides the same red row, the arrows act differs: ArrowDown, ArrowDown, ArrowUp land on different positions because a 320-pixel box wraps its lines elsewhere than the 520-pixel `EditorView`. That is a difference of geometry, not of the view. The typing timings of `npm run parity -- --boxes`: 1.10 ms median on the short document, 1.50 on the long.
+
+## What is not done
+
+- **The window's viewport only.** `near` reads every element's rectangle against the window, not against a scrolling ancestor. A view in a scrolling pane needs the observer's own records, or a root.
+- **The first word after a cut** is a run of non-space characters. A cut in CJK text, or after a hyphen, dirties too little; `Intl.Segmenter`'s line granularity is the fix when it matters.
+- **The trial's margin of two lines** assumes greedy line breaking. `text-wrap: balance` or `pretty` lays out a paragraph's lines together, and a trial that ends inside such a paragraph can move the cut.
+- **ArrowLeft at a cut** is left-to-right only. Word moves (Alt+Arrow), ArrowUp and ArrowDown across a box boundary, and a drag that extends across boxes are left to the browser, and no act drives them.
+- **The decoration paint** still reads every decoration's position on each paint to decide which fragments changed, and recreates each class's `Highlight`. `Highlight.add` and `Highlight.delete` per changed fragment would leave the untouched alone.
+- **Highlight names are global to the page**: two views share `fragview-selection` and every decoration class.
+- **Collaboration** is still not exercised, and node views, drag and drop, `scrollIntoView` and the rest of phase 1's list are unchanged.
+
+## What surprised
+
+- **An edit after the cut can move the cut.** Deleting a few characters at the start of box 1 can let the first word of box 1 fit on box 0's last line, though no step touched box 0's range. The plugin's touched test now reaches the end of the first word after a cut.
+- **A cut at a paragraph's first line rendered an empty paragraph at the foot of the box before.** `doc.slice(from, to)` with `to` at the start of a textblock's content includes the textblock, opened and empty, and the renderer gave it a trailing break. The box now ends at `openedAt(to)`, and the next box shows the opening positions, which is also what `posAtDOM` needed for 2 476 of 2 476.
+- **The undo of a cut-moving edit is a ripple, not a mapping.** The mapping only takes back the positions the edit added; the cuts the refills moved come back through the same refills.
+- **The `ResizeObserver` reported a loop** when `moved`'s listener refilled inside the observer's callback. A refill changes the sizes being observed, and the browser fires an error event, which a page treats as an uncaught error. `moved` now leaves for the next frame.
+- **Live ranges cost.** The highlights held 80 live `Range`s on the long document (the decorated word occurs 8 times in each of its ten copies), and the browser updated each one on every DOM mutation. `StaticRange` took 0.5 ms off the key's median, from 2.20 to 1.70.
+- **`page.goto` waited for the late image.** Playwright's default waits for the `load` event, which waits for images, so the first measurement of `moved` saw the image already there. The script loads with `domcontentloaded`.
