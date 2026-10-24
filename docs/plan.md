@@ -84,7 +84,9 @@ A box of fixed width and height. `fill` renders the slice, lays it out, reads th
 
 ## The BelType fragmentainer
 
-Cicero's page: `@page` geometry, margin boxes, named pages, the make-up order over candidates, forced breaks and avoids, counters and strings, demands when footnotes come ([*a competing flow bargains the foot of the main flow*](../../beltype/.claude/decisions/cicero/a-competing-flow-bargains-the-foot-of-the-main-flow.md)). Same `fill`, same `to`. Two things it needs that the box does not: the chain, since page numbers, `target-counter()` and strings are reads over every entry, not one; and a say in the container that follows (`next: { name: 'wide' }`, a blank page after `break-before: right`). So BelType's side is a `ContainerFactory` that reads the chain plus the page component, and the reads loop that settles in a few runs lives there and asks the view to refill. What it is today in Cicero: `stonehand.js` and `chase.js` become the component, `driver.js` becomes the view's chain, `root.js` stops owning the DOM.
+Cicero's page: `@page` geometry, margin boxes, named pages, the make-up order over candidates, forced breaks and avoids, counters and strings, demands when footnotes come ([*a competing flow bargains the foot of the main flow*](../../beltype/.claude/decisions/cicero/a-competing-flow-bargains-the-foot-of-the-main-flow.md)). Same `fill`, same `to`. Two things it needs that the box does not: the chain, since page numbers, `target-counter()` and strings are reads over every entry, not one; and a say in the container that follows (`next: { name: 'wide' }`, a blank page after `break-before: right`). So the BelType side is a `ContainerFactory` that reads the chain plus the page component, and the reads loop that settles in a few runs lives there and asks the view to refill.
+
+**Corrected 2026-10-24** ([*the engine knows no view*](../../beltype/.claude/decisions/project/the-engine-knows-no-view.md)). The first draft said that `stonehand.js` and `chase.js` become the component, `driver.js` the view's chain, and that `root.js` stops owning the DOM. None of that holds: Cicero stays a function from a document and its sheets to cuts, runnable as one round from the CLI with no editor state, and `root.js` stays its presenter. The BelType fragmentainer lives in a third package, `prosemirror-beltype`, which imports this one and the engine and implements `Fragmentainer` and `ContainerFactory` over the engine's objects: the geometry capture, the sheet rewrite, the measure context and the report, the adjudication, the page element, the counter state over supplied readers, the reads loop over an abstract chain. This package never learns the engine's name: a sweep over `src/` for `beltype` and `cicero` fails the build.
 
 ## The proof that the seam is clean
 
@@ -97,7 +99,7 @@ Each phase is a branch of the studio, measured by a Playwright script, recorded 
 1. **The package and the parity.** `fragview/` in the studio: the `Fragmentainer` interface, `OverflowBox`, `fragmentsPlugin`, `FragmentedView` with the geometry methods, the props protocol, input from `keydown` and `beforeinput`, the clipboard from `src/clipboard.js`. The lab under one infinite box: the parity acts above, pass or fail each, and `npm run typing` style sessions against the authority. Green means `EditorView` could be swapped out of any ProseMirror app built on these plugins.
 2. **Fixed-height boxes.** The chain mapped through transactions, refill of dirty entries only, the selection across fragments as highlights, the window policy building near the viewport. Measured: an edit on page one refills one fragment and dirties none when `to` lands where it was; an edit that moves a cut refills two; undo restores the chain.
 3. **The slice renderer from the generic schema.** Shallow siblings by index, instance stamps, the engine's `away` word on the siblings; the lab under two boxes lossless (the saved file byte for byte) and editable (the four acts of the generic-schema round).
-4. **The BelType fragmentainer.** Cicero's page implementing `fill` with its judgement and `next` hints, the chain's reads over the entries, the reads loop; the showcase through `FragmentedView` against the studio's orchestrator as it stands today: same pages (76 by default), same words per page, the console the same two meant warnings. This is where the seam is tested against reality, and the phase that may send the interface back to the drawing board.
+4. **The BelType fragmentainer**, moved to `prosemirror-beltype` on 2026-10-24 and phased there. What stays here are the two doors it needs of this package: the words registry (`data-beltype` and the six words) as a parameter of the renderer with a neutral default, so the sweep that this package names no engine passes (`test/no-engine.test.js` marks it to do); and a way to invalidate every container when conditions change (a `@page` edit dirties every entry and every page's geometry), found by the demo of 2026-10-24, where a change of box size needed a fresh mount because the view keeps a container whose chain key survives a new state. The proof moves with it: not the studio's orchestrator but the CLI's own round under Cicero, the same showcase cut twice, same cuts, same words, same folios.
 5. **The read-back.** DOM changes read back at the text level, CodeMirror 6's way, through the two hops (`sourcePoint` to the source, `posAt` to the position) and the instance stamps: IME composition deferred to `compositionend`, dead keys for accents, autocorrect's word replacement, spellcheck's suggestion, each one act with the real input events and the model serialized after.
 
 ## Refused, with the reason
@@ -109,10 +111,12 @@ Each phase is a branch of the studio, measured by a Playwright script, recorded 
 
 ## Open questions
 
-- Whether `fill` is asynchronous (fonts and images arriving) or synchronous with `moved` carrying every late truth; the first reads simpler, the second keeps the engine's present shape.
-- The window policy's estimate for unbuilt fragments: the heights table Cicero keeps is the obvious seed; whether it belongs to the view or to BelType's factory.
-- Whether the chain's entries carry the page geometry (so a reader of the chain can answer `pageOf` without the containers) or only positions.
-- The name. `prosemirror-fragview` is the working one; `FragmentedView` the class.
+Answered 2026-10-24, in the round that produced [*the engine knows no view*](../../beltype/.claude/decisions/project/the-engine-knows-no-view.md):
+
+- `fill` is asynchronous for what the container can await (fonts and images already in the DOM), and `moved` carries what arrives after. Both, as `OverflowBox` already does.
+- The window estimate stays the view's mean span. The engine's heights table joins only if the placeholders visibly jump on the showcase.
+- An entry carries positions and the `next` hint the previous fill answered, never geometry: `pageOf(pos)` is an index lookup over the chain, and sizes stay on the page element.
+- The names stay: `prosemirror-fragview`, `FragmentedView`; the BelType package is `prosemirror-beltype`.
 
 ## Where things are
 
