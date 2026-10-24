@@ -108,3 +108,11 @@ test('a mark added inside an entry marks it dirty, though its step map moves not
   const next = state.apply(state.tr.addMark(state.doc.tag.a, state.doc.tag.b, schema.marks.strong.create()));
   assert.deepEqual(entries(next).map((e) => [e.from, e.to, e.dirty]), [[0, state.doc.tag.cut, true], [state.doc.tag.cut, null, false]]);
 });
+
+test('dirtied with no key marks every entry dirty, outside the history', () => {
+  const state = twoEntries(doc(p('one'), p('<cut>two')));
+  const tr = dirtied(state.tr);
+  assert.equal(tr.getMeta('addToHistory'), false);
+  const next = state.apply(tr);
+  assert.deepEqual(entries(next).map((e) => [e.key, e.from, e.to, e.dirty]), entries(state).map((e) => [e.key, e.from, e.to, true]));
+});
