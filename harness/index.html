@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fragview parity</title>
+<style>
+  body { margin: 16px; font: 14px/1.4 system-ui, sans-serif; color: #222; }
+  #toolbar { font: 12px/1.6 ui-monospace, monospace; margin-bottom: 12px; }
+  #toolbar .equal { color: #176b1d; } #toolbar .differ { color: #b3261e; }
+  #columns { display: flex; gap: 24px; align-items: flex-start; }
+  .col { width: 520px; }
+  .col h3 { font: 600 12px system-ui; margin: 0 0 6px; text-transform: uppercase; letter-spacing: .05em; color: #666; }
+  .editor { font: 16px/1.5 Georgia, 'Times New Roman', serif; }
+  .editor .ProseMirror, .editor .fragview { outline: 1px solid #ccc; padding: 8px 12px; }
+  .editor .ProseMirror:focus, .editor .fragview:focus { outline: 2px solid #4a7; }
+  .editor pre { background: #f4f1ea; padding: 6px 8px; font-size: 13px; }
+  .editor blockquote { border-left: 3px solid #ccc; margin-left: 0; padding-left: 12px; color: #444; }
+  .editor img { vertical-align: middle; }
+  .editor li { position: relative; }
+  .hl-word { background: #fff1a8; }
+  ::highlight(hl-word) { background-color: #fff1a8; }
+</style>
+</head>
+<body>
+<div id="toolbar">loading</div>
+<div id="columns">
+  <div class="col"><h3>EditorView</h3><div class="editor" id="left"></div></div>
+  <div class="col"><h3>FragmentedView, one infinite OverflowBox</h3><div class="editor" id="right"></div></div>
+</div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -1,0 +1,31 @@
+<h1>The composition of pages</h1>
+<p>A page is a <strong>fragmentainer</strong>: a box that holds one fragment of a flow and gives back the place where it had to stop. The browser lays out <em>one long column</em> without effort, and a paginator asks it, again and again, <strong>where the column would end</strong> if it were only so tall. The answer is a position, and the next page begins there.</p>
+<p>ProseMirror keeps the document as a tree of nodes and counts its positions in tokens, so a position is a single integer that survives every edit through a <code>Mapping</code>. That integer is the break token the <a href="https://drafts.css-houdini.org/css-layout-api/">Layout API</a> never shipped. When a step inserts three characters before a cut, the cut moves by three, and nobody needs to look at the DOM to learn it.</p>
+<h2>What the view has to do</h2>
+<p>The view draws the state, reads the reader's keys, and answers questions of geometry. Everything else belongs to the plugins, which never touch the DOM: the keymap turns a key into a command, the history remembers steps, and the input rules watch the text as it is typed.</p>
+<ul>
+  <li><p>Render the document into fragments, each filled from where the last one stopped.</p>
+    <ul>
+      <li><p>A fragment holds a slice, and a slice keeps its open ancestors.</p>
+        <ul>
+          <li><p>A list item cut across two pages is still a list item on the second one.</p></li>
+          <li><p>Its numbering reads from the source, not from the page.</p></li>
+        </ul>
+      </li>
+      <li><p>The positions of every rendered node are recorded as they are written.</p></li>
+    </ul>
+  </li>
+  <li><p>Draw the selection with the browser's own, inside the fragment that holds it.</p></li>
+  <li><p>Apply every key to the model first, and render after.</p></li>
+</ul>
+<h2>An example</h2>
+<p>The default fragmentainer measures its own overflow. Its whole interface fits in a few lines:</p>
+<pre><code>const box = new OverflowBox({ width: 480, height: 640 });
+const { to } = await box.fill(doc, from, renderSlice);
+if (to != null) next.fill(doc, to, renderSlice);</code></pre>
+<blockquote>
+  <p>The browser fills, the engine reads. A rich fragmentainer is the overflow box plus judgement: it starts from the overflow and walks back to the best place to cut.</p>
+</blockquote>
+<p>A figure travels with its text: <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='60'%3E%3Crect width='120' height='60' fill='%23d9cfb8'/%3E%3Ctext x='60' y='36' font-size='14' text-anchor='middle' fill='%23333'%3Efigure%3C/text%3E%3C/svg%3E" alt="A small figure" title="figure"> and the line wraps around it as any inline content does, so the cut can fall before or after it but never through it.</p>
+<h2>Where it goes next</h2>
+<p>Two boxes of fixed height come next: the chain held in plugin state, an edit mapping both entries, and only the touched fragment filled again. After that the slice renderer learns the shallow siblings, and then a real page takes the place of the box, with <em>margin boxes</em>, <em>named pages</em> and the make-up order behind the same <strong>single</strong> answer: the position where it stopped.</p>
