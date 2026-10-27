@@ -18,7 +18,8 @@
     "chain": "node scripts/chain.mjs",
     "lossless": "node scripts/lossless.mjs",
     "acts": "node scripts/acts.mjs",
-    "fragments": "node scripts/fragments.mjs"
+    "fragments": "node scripts/fragments.mjs",
+    "compose": "node scripts/compose.mjs"
   },
   "peerDependencies": {
     "prosemirror-model": "^1.25.0",
