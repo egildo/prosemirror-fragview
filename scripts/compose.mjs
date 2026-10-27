@@ -1,4 +1,4 @@
-// usage: node scripts/compose.mjs [--headed] [--boxes] [--generic] — compositions driven through Chromium's input method over CDP (`Input.imeSetComposition` k, か, かn, かな, then `Input.insertText "仮名"`), each performed identically on the EditorView (left) and on the FragmentedView (right) of the harness from a fresh state: in plain text, at both edges of a non-inclusive mark (a link) and of an inclusive one (strong), over a selection, refused by `handleTextInput`, cancelled, and recomposing the word before the caret through a replacement range. `--boxes` puts the right side under 320 × 480 boxes; `--generic` runs the plain and edge acts on the studio's schema lab under structured marks instead. For each act it prints whether the two documents and selections are equal after the act, after one Mod-z and after Shift-Mod-z, the marks the composed text carries on each side, whether the right side's text is the text a fresh fill of its document draws (the chain invalidated and refilled from the model), after the act and after the undo, and whether it draws the composed text (for a cancelled composition, its last in-progress text) as often as its document holds it, where its DOM caret stands, the steps it applied, and, under `--generic`, whether its mark instances survived and whether a view attribute reached the document. Exits 1 when an act fails any of these.
+// usage: node scripts/compose.mjs [--headed] [--boxes] [--generic] — compositions driven through Chromium's input method over CDP (`Input.imeSetComposition` k, か, かn, かな, then `Input.insertText "仮名"`), each performed identically on the EditorView (left) and on the FragmentedView (right) of the harness from a fresh state: in plain text, at both edges of a non-inclusive mark (a link) and of an inclusive one (strong), over a selection, refused by `handleTextInput`, with no `compositionstart` and with one a `handleDOMEvents` handler takes, cancelled, and recomposing the word before the caret through a replacement range. `--boxes` puts the right side under 320 × 480 boxes; `--generic` runs the plain and edge acts on the studio's schema lab under structured marks instead. For each act it prints whether the two documents and selections are equal after the act, after one Mod-z and after Shift-Mod-z, the marks the composed text carries on each side, whether the right side's text is the text a fresh fill of its document draws (the chain invalidated and refilled from the model), after the act and after the undo, and whether it draws the composed text (for a cancelled composition, its last in-progress text) as often as its document holds it, where its DOM caret stands, the steps it applied, and, under `--generic`, whether its mark instances survived and whether a view attribute reached the document. Exits 1 when an act fails any of these.
 import { open } from './browser.mjs';
 
 const MOD = 'ControlOrMeta';
@@ -62,7 +62,13 @@ const acts = generic ? [
   { name: 'at the end of strong (inclusive)', at: async () => [(await find('fragmentainer')) + 'fragmentainer'.length, -1] },
   { name: 'at the start of strong (inclusive)', at: async () => [await find('fragmentainer'), 1] },
   { name: 'over a selection of three characters', at: async () => [await find('without effort'), 1], async run() { for (let i = 0; i < 3; i++) await page.keyboard.press('Shift+ArrowRight'); await settle(); await compose(); } },
-  { name: 'refused by a handleTextInput that takes the text and does nothing', refuse: true, at: async () => [await find('without effort'), 1] },
+  { name: 'refused by a handleTextInput that takes the text and does nothing', props: 'refuse', at: async () => [await find('without effort'), 1] },
+  { name: 'with no compositionstart (stopped by a capture listener on the window)', undoToClick: true, at: async () => [await find('without effort'), 1], async run() {
+    await page.evaluate(() => { window.stopStart = (e) => e.stopImmediatePropagation(); window.addEventListener('compositionstart', window.stopStart, true); });
+    await compose();
+    await page.evaluate(() => window.removeEventListener('compositionstart', window.stopStart, true));
+  } },
+  { name: 'compositionstart taken by a handleDOMEvents handler', props: 'takeStart', at: async () => [await find('without effort'), 1] },
   { name: 'cancelled (k, か, then an empty composition)', at: async () => [await find('without effort'), 1], async run() { await compose(['k', 'か', ''], null); }, commit: '', probe: 'か' },
   { name: 'recomposing the word before the caret (a replacement range)', at: async () => [(await find('composition')) + 'composition'.length, -1], async run() {
     // The composition is set over the word before the caret, then committed as its correction. Chromium selects the replacement range before `compositionstart`, so this is a reconversion over a selection; Android's composing region, set over text with the selection left collapsed, has no CDP command. The word is in the first textblock, where the editing host's plain-text offsets, which the range counts in, are the text's.
@@ -111,16 +117,20 @@ for (const act of acts) {
   const errors = [];
   const onError = (e) => errors.push(e.message);
   page.on('pageerror', onError);
-  if (act.refuse) await page.evaluate(() => { for (const v of [window.harness.left, window.harness.right]) v.setProps({ handleTextInput: () => true }); });
+  // A prop set on both views for the act: a handleTextInput refusing the text, or a handleDOMEvents taking compositionstart.
+  const setProps = (key, on) => page.evaluate(([k, on]) => { const props = k === 'refuse' ? { handleTextInput: on ? () => true : undefined } : { handleDOMEvents: on ? { compositionstart: () => true } : undefined }; for (const v of [window.harness.left, window.harness.right]) v.setProps(props); }, [key, on]);
+  if (act.props) await setProps(act.props, true);
+  const heads = {};
   for (const side of SIDES) {
     const [pos, bias] = await act.at();
     await clickAt(side, pos, bias);
+    heads[side] = await page.evaluate((s) => window.harness.view(s).state.selection.head, side);
     await (act.run ? act.run() : compose());
     await settle();
   }
   await settled();
   const after = await snapshot();
-  if (act.refuse) await page.evaluate(() => { for (const v of [window.harness.left, window.harness.right]) v.setProps({ handleTextInput: undefined }); });
+  if (act.props) await setProps(act.props, false);
   const seen = await look(probe);
   seen.drawsFresh = await drawnAsFresh();
   const steps = await page.evaluate(() => window.steps.slice());
@@ -133,7 +143,9 @@ for (const act of acts) {
   const undone = await snapshot();
   // An act that changed neither document leaves nothing to undo: its Mod-z is compared on the documents, since EditorView's selection after a focus with nothing to undo is not the composition's (measured: at 1 after the refused act).
   const changed = !same(after.left.doc, before.left.doc) || !same(after.right.doc, before.right.doc);
-  const undoEqual = same(undone.left.doc, undone.right.doc) && (!changed || same(undone.left.selection, undone.right.selection));
+  // With no compositionstart, EditorView's state had not yet read the click's selectionchange when the composition began (its head measured at 1), so its undo returns there: the right is held to its own click instead.
+  const undoEqual = same(undone.left.doc, undone.right.doc) && (!changed || (act.undoToClick ? undone.right.selection.head === heads.right && undone.right.selection.anchor === heads.right : same(undone.left.selection, undone.right.selection)));
+  if (act.undoToClick) notes.push(`heads after the click ${heads.left} / ${heads.right}, after undo ${undone.left.selection.head} / ${undone.right.selection.head}`);
   const undoRestored = same(undone.right.doc, before.right.doc);
   for (const side of SIDES) { await page.evaluate((s) => window.harness.view(s).focus(), side); await settle(); await page.keyboard.press(`Shift+${MOD}+z`); await settle(); }
   await settled();

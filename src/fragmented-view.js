@@ -14,7 +14,7 @@
  *
  * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position.
  *
- * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart`, as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
+ * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
  * Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
  *
@@ -805,6 +805,8 @@ export class FragmentedView {
 
   /** @param {InputEvent} event */
   onBeforeInput(event) {
+    // A composition whose compositionstart never reached the view (a browser that sends none, a listener that stopped it): its first insertCompositionText comes before the browser writes the text, so the selection read here is still the model's. Only that type starts one: an event merely marked isComposing may follow compositionend (WebKit's insertFromComposition), and would leave the view composing.
+    if (event.inputType === 'insertCompositionText') this.startComposing();
     if (this.custom(event) || this.composing || event.isComposing) return;
     this.readSelection();
     event.preventDefault();
@@ -912,9 +914,17 @@ export class FragmentedView {
     this.dispatch(tr.scrollIntoView().setMeta('paste', true).setMeta('uiEvent', 'paste'));
   }
 
-  /** @param {CompositionEvent} event */
+  /**
+   * The browser is composing whether or not a `handleDOMEvents` handler takes the event, so the selection is held from here even then.
+   * @param {CompositionEvent} event
+   */
   onCompositionStart(event) {
-    if (this.custom(event)) return;
+    this.custom(event);
+    this.startComposing();
+  }
+
+  /** Read the browser's selection one last time, then hold it: while the browser composes, its caret stands in text the model does not hold. */
+  startComposing() {
     this.readSelection();
     this.composing = true;
   }
