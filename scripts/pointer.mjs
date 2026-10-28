@@ -1,4 +1,4 @@
-// usage: node scripts/pointer.mjs [--headed] — the mouse selection acts of the editing bugs, over the harness under 320 × 480 boxes, with the real mouse (Playwright). A press, a drag and a release are compared with where the view's own posAtCoords puts the pointer at each end: the model's anchor is the press and its head is the pointer's, whatever lies between (a box's foot, another box, a scrolled pane). (1) a drag from the foot of box 0 into box 1, with the highlight in both boxes; (2) a click in box 0 and a Shift+click in box 1; (3) a drag over three boxes; (4) a drag inside one box with the pane scrolled by script under the held button, against the same drag unscrolled; (5) a drag held at the pane's foot, which must scroll the pane and carry the head on; (6) a double click, which must still select the word; (7) the same drag as (1) with a Shift+click after it, which must extend from the drag's anchor. Prints a table and exits 1 when an act differs.
+// usage: node scripts/pointer.mjs [--headed] — the mouse selection acts of the editing bugs, over the harness under 320 × 480 boxes, with the real mouse (Playwright). A press, a drag and a release are compared with where the view's own posAtCoords puts the pointer at each end: the model's anchor is the press and its head is the pointer's, whatever lies between (a box's foot, another box, a scrolled pane). (1) a drag from the foot of box 0 into box 1, with the highlight in both boxes; (2) a click in box 0 and a Shift+click in box 1; (3) a drag over three boxes; (4) a drag inside one box with the pane scrolled by script under the held button, against the same drag unscrolled; (5) a drag held at the pane's foot, which must scroll the pane and carry the head on; (6) a double click, which must still select the word; (7) a drag across the cut and a Shift+click after it, which must extend from the drag's anchor; (8) a click inside a selection, which the browser collapses at mouseup, with a refill of another box dispatched in the task of the mouseup, so that the model's selection must follow the click and not be drawn over it. Prints a table and exits 1 when an act differs.
 import { open } from './browser.mjs';
 
 const session = await open('harness/?boxes=320x480', { headless: !process.argv.includes('--headed') });
@@ -131,6 +131,27 @@ await reset();
   await page.keyboard.down('Shift'); await page.mouse.click(d.x, d.y); await page.keyboard.up('Shift'); await settle();
   const got = await selection();
   row(`a drag across the cut, then a Shift+click in the same box further on (${want.anchor} → ${want.head})`, same(got, want), `selection ${got.anchor} → ${got.head}`);
+}
+
+// (8) A click inside a selection, which the browser collapses at mouseup, with a refill of another box dispatched in the same task: the model's selection must follow the click, not be drawn over it.
+await reset();
+{
+  const a = (await chain())[1].from + 120;
+  const p = await pointOf(a);
+  await page.mouse.click(p.x, p.y); await settle();
+  for (let i = 0; i < 6; i++) await page.keyboard.press('Shift+ArrowRight');
+  await settle();
+  const inside = await pointOf(a + 3);
+  const want = await posAt(inside.x, inside.y);
+  await page.evaluate(async () => {
+    const { dirtied } = await import('/src/fragments-plugin.js');
+    const view = window.harness.right;
+    const once = () => { document.removeEventListener('mouseup', once, true); const other = view.entries.find((e) => !view.containers.get(e.key)?.dom.contains(document.activeElement) && e.key !== view.entries[view.indexAt(view.state.selection.head)].key); view.dispatch(dirtied(view.state.tr, other.key)); };
+    document.addEventListener('mouseup', once, true);
+  });
+  await page.mouse.click(inside.x, inside.y); await settle(); await settled();
+  const got = await selection();
+  row(`a click inside a selection with a refill of another box in the task of its mouseup (${want})`, got.anchor === want && got.head === want, `selection ${got.anchor} → ${got.head}`);
 }
 
 console.log('| Act | As expected | Notes |\n| :-- | :-- | :-- |');

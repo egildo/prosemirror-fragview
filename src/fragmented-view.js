@@ -125,6 +125,8 @@ export class FragmentedView {
     this.filling = new Map();
     /** The browser is composing; nothing is rendered until it ends. */
     this.composing = false;
+    /** The head's fragment and how many fills it had when the browser's selection was last drawn from the model. @type {string | null} */
+    this.drawnFill = null;
     /** The press the view owns until its release: the model position it selects from, where the pointer last was, and whether a move has taken over the selection. @type {{ anchor: number, left: number, top: number, moved: boolean } | null} */
     this.pointer = null;
     this.onPointerMove = (/** @type {MouseEvent} */ e) => this.onMouseMove(e);
@@ -277,7 +279,8 @@ export class FragmentedView {
     const editable = !this.someProp('editable', (f) => f(this.state) === false);
     if (editable !== this.editable || !prev) this.dom.contentEditable = String((this.editable = editable));
     this.refresh();
-    this.selectionToDOM();
+    // As EditorView does, the browser's selection is written only when the state changed it or the fragment it stands in was drawn again: a refill of another fragment (a transaction with no selection) must not draw the model's selection over a click the browser has made and `selectionchange` has not yet reported.
+    if (!prev || prev.doc !== this.state.doc || !prev.selection.eq(this.state.selection) || this.headFill() !== this.drawnFill) this.selectionToDOM();
     this.paint();
     this.updatePluginViews(prev);
     this.lastUpdateMs = performance.now() - started;
@@ -435,6 +438,8 @@ export class FragmentedView {
       if (at < 0 || entries[at].from !== entry.from) return;
       this.hints.set(entry.key, next);
       this.boxHeight = container.dom.offsetHeight;
+      // A container may write its DOM after the wait (a page the engine cuts), so the answer of the fragment that holds the head draws the browser's selection again.
+      if (this.entries[this.indexAt(this.state.selection.head)]?.key === entry.key) this.drawnFill = null;
       let tr = null;
       if (entries[at].dirty || entries[at].to !== to) tr = refilled(this.state.tr, entry.key, to);
       if (to != null && at === entries.length - 1) tr = appended(tr ?? this.state.tr, to);
@@ -652,9 +657,16 @@ export class FragmentedView {
 
   // ---- Selection ----
 
+  /** The key and fill count of the fragment that holds the head, which tell whether its DOM is the one the browser's selection was drawn in. */
+  headFill() {
+    const key = this.entries[this.indexAt(this.state.selection.head)]?.key;
+    return `${key}:${this.fillCount.get(/** @type {number} */ (key))}`;
+  }
+
   /** Draw the model selection with the browser's own, when the view has focus. */
   selectionToDOM() {
     if (!this.hasFocus() || this.composing) return;
+    this.drawnFill = this.headFill();
     const { selection } = this.state;
     let anchor, head;
     if (selection instanceof NodeSelection) {
@@ -998,6 +1010,7 @@ export class FragmentedView {
   onCompositionEnd(event) {
     const taken = this.custom(event);
     this.composing = false;
+    this.drawnFill = null; // the browser's caret stands in text the model does not hold
     if (!taken) {
       const { from, to, head } = this.state.selection;
       const key = this.entries[this.indexAt(head)]?.key;
