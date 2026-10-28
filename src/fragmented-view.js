@@ -10,20 +10,22 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment). `handleDOMEvents` runs first for every event the view listens to.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`; `paste` does not read that attribute yet. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to.
  *
- * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position.
+ * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
  * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
- * Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
+ * Scrolling. A transaction that asks for it (`scrollIntoView`) scrolls the head's rectangle into the view of every scrolling ancestor, as `EditorView` does, with `scrollThreshold`, `scrollMargin` and `handleScrollToSelection` read as it reads them. The head may stand in a fragment still to be filled when the transaction is applied, so the scroll is made again at each update until the chain has settled up to the head.
+
+Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
  *
- * What the view does not do yet, besides the above: node views, `handleClick` and its kin, a node selection by clicking a leaf, drag and drop (both halves are refused), `scrollIntoView` on a transaction that asks for it, `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
+ * What the view does not do yet, besides the above: node views, `handleClick` and its kin, drag and drop (both halves are refused), `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
  *
  * @packageDocumentation
  */
 
-import { NodeSelection, Selection, TextSelection } from 'prosemirror-state';
+import { AllSelection, NodeSelection, Selection, TextSelection } from 'prosemirror-state';
 import { DOMParser as PMDOMParser, DOMSerializer, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
@@ -46,6 +48,9 @@ import { sliceRenderer, openedAt } from './slice-renderer.js';
  */
 
 /** @typedef {{ node: globalThis.Node, offset: number }} DOMPoint */
+
+/** Whether the platform is a Mac, where Cmd plus an arrow moves by the line and not by a character. */
+const MAC = /Mac/.test(globalThis.navigator?.platform ?? '');
 
 /** The editing events the view answers itself; every other `beforeinput` is refused. */
 const DELETES = /^delete(?!ByDrag)/;
@@ -80,6 +85,92 @@ function staticRange(start, end) {
  */
 function withFragments(state) {
   return fragmentsKey.get(state) ? state : state.reconfigure({ plugins: [...state.plugins, fragmentsPlugin()] });
+}
+
+/** The elements the clipboard's HTML needs a parent for, or `<tr>` and `<td>` copied alone are dropped when pasted: `prosemirror-view`'s wrapMap. @type {Record<string, string[]>} */
+const WRAP = { thead: ['table'], tbody: ['table'], tfoot: ['table'], caption: ['table'], colgroup: ['table'], col: ['table', 'colgroup'], tr: ['table', 'tbody'], td: ['table', 'tbody', 'tr'], th: ['table', 'tbody', 'tr'] };
+
+/**
+ * A slice as the clipboard carries it, as `prosemirror-view`'s `serializeForClipboard` writes it: `transformCopied` applied, the slice's single-child levels that are open at both ends taken off the markup and listed in the first element's `data-pm-slice` (with the open depths) so that a ProseMirror editor pasting it puts it back where it came from, the content serialized by `clipboardSerializer` or the schema's, and the text by `clipboardTextSerializer` or the slice's, a blank line between blocks.
+ * @param {FragmentedView} view
+ * @param {Slice} slice
+ */
+function serializeForClipboard(view, slice) {
+  view.someProp('transformCopied', (f) => { slice = f(slice, view); });
+  let { content, openStart, openEnd } = slice;
+  const context = [];
+  while (openStart > 1 && openEnd > 1 && content.childCount === 1 && /** @type {PMNode} */ (content.firstChild).childCount === 1) {
+    openStart--;
+    openEnd--;
+    const node = /** @type {PMNode} */ (content.firstChild);
+    context.push(node.type.name, node.attrs !== node.type.defaultAttrs ? node.attrs : null);
+    content = node.content;
+  }
+  const serializer = view.someProp('clipboardSerializer') || DOMSerializer.fromSchema(view.state.schema);
+  const doc = document.implementation.createHTMLDocument('title'), wrap = doc.createElement('div');
+  wrap.appendChild(serializer.serializeFragment(content, { document: doc }));
+  let first = wrap.firstChild, wrappers = 0, needs;
+  while (first && first.nodeType === 1 && (needs = WRAP[first.nodeName.toLowerCase()])) {
+    for (let i = needs.length - 1; i >= 0; i--) {
+      const wrapper = doc.createElement(needs[i]);
+      while (wrap.firstChild) wrapper.appendChild(wrap.firstChild);
+      wrap.appendChild(wrapper);
+      wrappers++;
+    }
+    first = wrap.firstChild;
+  }
+  if (first && first.nodeType === 1) /** @type {Element} */ (first).setAttribute('data-pm-slice', `${openStart} ${openEnd}${wrappers ? ` -${wrappers}` : ''} ${JSON.stringify(context)}`);
+  const text = view.someProp('clipboardTextSerializer', (f) => f(slice, view)) || slice.content.textBetween(0, slice.content.size, '\n\n', '\ufffc');
+  return { html: wrap.innerHTML, text };
+}
+
+/**
+ * The parent of a node for scrolling, through slots and shadow roots as `prosemirror-view`'s `parentNode` goes.
+ * @param {globalThis.Node} node
+ * @returns {globalThis.Node | null}
+ */
+function parentNode(node) {
+  const parent = /** @type {any} */ (node).assignedSlot || node.parentNode;
+  return parent && parent.nodeType === 11 ? parent.host : parent;
+}
+
+/**
+ * Scroll every scrolling ancestor of `startDOM`, and the window, until `rect` (viewport coordinates) is inside it, as `prosemirror-view`'s `scrollRectIntoView` does, with the same `scrollThreshold` and `scrollMargin` props (a margin of 5 by default).
+ * @param {FragmentedView} view
+ * @param {{ left: number, right: number, top: number, bottom: number }} rect
+ * @param {globalThis.Node} startDOM
+ */
+function scrollRectIntoView(view, rect, startDOM) {
+  if (!(rect.top < rect.bottom || rect.left < rect.right) && rect.left === 0) return; // no CSS box
+  const side = (/** @type {any} */ value, /** @type {'top' | 'right' | 'bottom' | 'left'} */ name) => (typeof value === 'number' ? value : value[name]);
+  const threshold = view.someProp('scrollThreshold') || 0, margin = view.someProp('scrollMargin') || 5;
+  const doc = view.dom.ownerDocument;
+  for (let parent = /** @type {globalThis.Node | null} */ (startDOM); parent;) {
+    if (parent.nodeType !== 1) { parent = parentNode(parent); continue; }
+    const el = /** @type {HTMLElement} */ (parent);
+    const atTop = el === doc.body;
+    const bounding = atTop
+      ? { left: 0, top: 0, right: doc.defaultView?.visualViewport?.width ?? doc.documentElement.clientWidth, bottom: doc.defaultView?.visualViewport?.height ?? doc.documentElement.clientHeight }
+      : (() => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.left + el.clientWidth * (r.width / el.offsetWidth || 1), bottom: r.top + el.clientHeight * (r.height / el.offsetHeight || 1) }; })();
+    let moveX = 0, moveY = 0;
+    if (rect.top < bounding.top + side(threshold, 'top')) moveY = -(bounding.top - rect.top + side(margin, 'top'));
+    else if (rect.bottom > bounding.bottom - side(threshold, 'bottom')) moveY = rect.bottom - rect.top > bounding.bottom - bounding.top ? rect.top + side(margin, 'top') - bounding.top : rect.bottom - bounding.bottom + side(margin, 'bottom');
+    if (rect.left < bounding.left + side(threshold, 'left')) moveX = -(bounding.left - rect.left + side(margin, 'left'));
+    else if (rect.right > bounding.right - side(threshold, 'right')) moveX = rect.right - bounding.right + side(margin, 'right');
+    if (moveX || moveY) {
+      if (atTop) doc.defaultView?.scrollBy(moveX, moveY);
+      else {
+        const startX = el.scrollLeft, startY = el.scrollTop;
+        if (moveY) el.scrollTop += moveY;
+        if (moveX) el.scrollLeft += moveX;
+        const dX = el.scrollLeft - startX, dY = el.scrollTop - startY;
+        rect = { left: rect.left - dX, top: rect.top - dY, right: rect.right - dX, bottom: rect.bottom - dY };
+      }
+    }
+    const position = atTop ? 'fixed' : getComputedStyle(el).position;
+    if (/^(fixed|sticky)$/.test(position)) break;
+    parent = position === 'absolute' ? el.offsetParent : parentNode(el);
+  }
 }
 
 export class FragmentedView {
@@ -125,6 +216,15 @@ export class FragmentedView {
     this.filling = new Map();
     /** The browser is composing; nothing is rendered until it ends. */
     this.composing = false;
+    /** A transaction asked for the selection to be scrolled into view and the chain has yet to settle: 'ask' before `handleScrollToSelection` has been asked, 'settle' after. @type {'ask' | 'settle' | null} */
+    this.scrolling = null;
+    /** The head's fragment and how many fills it had when the browser's selection was last drawn from the model. @type {string | null} */
+    this.drawnFill = null;
+    /** The press the view owns until its release: the model position it selects from, the leaf under it, where the pointer last was, and whether a move has taken over the selection. @type {{ anchor: number, inside: number, left: number, top: number, moved: boolean } | null} */
+    this.pointer = null;
+    this.onPointerMove = (/** @type {MouseEvent} */ e) => this.onMouseMove(e);
+    this.onPointerScroll = () => this.followPointer();
+    this.onPointerUp = (/** @type {MouseEvent} */ e) => this.onMouseUp(e);
     this.editable = true;
     this.destroyed = false;
     /** @type {[globalThis.Node | null, number, globalThis.Node | null, number] | null} */
@@ -145,7 +245,7 @@ export class FragmentedView {
       cut: (e) => this.onCopy(e),
       compositionstart: (e) => this.onCompositionStart(e),
       compositionend: (e) => this.onCompositionEnd(e),
-      mousedown: (e) => { if (!e.shiftKey) this.drawnAnchor = null; },
+      mousedown: (e) => this.onMouseDown(e),
     };
     for (const [type, handler] of Object.entries(this.handlers)) this.dom.addEventListener(type, handler);
     this.onSelectionChange = () => { if (this.hasFocus()) this.readSelection(); };
@@ -272,10 +372,34 @@ export class FragmentedView {
     const editable = !this.someProp('editable', (f) => f(this.state) === false);
     if (editable !== this.editable || !prev) this.dom.contentEditable = String((this.editable = editable));
     this.refresh();
-    this.selectionToDOM();
+    // As EditorView does, the browser's selection is written only when the state changed it or the fragment it stands in was drawn again: a refill of another fragment (a transaction with no selection) must not draw the model's selection over a click the browser has made and `selectionchange` has not yet reported.
+    if (!prev || prev.doc !== this.state.doc || !prev.selection.eq(this.state.selection) || this.headFill() !== this.drawnFill) this.selectionToDOM();
     this.paint();
     this.updatePluginViews(prev);
+    if (prev && /** @type {any} */ (this.state).scrollToSelection > /** @type {any} */ (prev).scrollToSelection) this.scrolling = 'ask';
+    if (this.scrolling) this.followSelection();
     this.lastUpdateMs = performance.now() - started;
+  }
+
+  /**
+   * Scroll the head into view for a transaction that asked (`scrollIntoView`), as `EditorView.scrollToSelection` does: `handleScrollToSelection` is asked once, then the head's rectangle (a node selection's node) is scrolled into the view of every scrolling ancestor. The head may stand in a fragment the ripple has yet to fill (Enter at a page's foot), or move when the fragments before it are refilled, so the scroll is made again at each update until the chain has settled.
+   */
+  followSelection() {
+    const { selection } = this.state;
+    const point = this.pointAt(selection.head);
+    if (point) {
+      if (this.scrolling === 'ask') {
+        this.scrolling = 'settle';
+        if (this.someProp('handleScrollToSelection', (f) => f(this))) this.scrolling = null;
+      }
+      if (this.scrolling) {
+        const node = selection instanceof NodeSelection ? this.nodeDOM(selection.from) : null;
+        if (!(selection instanceof NodeSelection)) scrollRectIntoView(this, this.coordsAtPos(selection.head, 1), point.node);
+        else if (node) scrollRectIntoView(this, node.getBoundingClientRect(), point.node);
+      }
+    }
+    // Settled for the head: no fill in flight and no dirty entry up to the head's (a dirty one after it moves nothing before it, and under the window policy stays dirty until it comes near).
+    if (this.filling.size === 0 && !this.entries.slice(0, this.indexAt(selection.head) + 1).some((e) => e.dirty)) this.scrolling = null;
   }
 
   /** Put each entry's element in the chain's order: its container's root when it is built, else its placeholder. */
@@ -430,6 +554,8 @@ export class FragmentedView {
       if (at < 0 || entries[at].from !== entry.from) return;
       this.hints.set(entry.key, next);
       this.boxHeight = container.dom.offsetHeight;
+      // A container may write its DOM after the wait (a page the engine cuts), so the answer of the fragment that holds the head draws the browser's selection again.
+      if (this.entries[this.indexAt(this.state.selection.head)]?.key === entry.key) this.drawnFill = null;
       let tr = null;
       if (entries[at].dirty || entries[at].to !== to) tr = refilled(this.state.tr, entry.key, to);
       if (to != null && at === entries.length - 1) tr = appended(tr ?? this.state.tr, to);
@@ -647,9 +773,16 @@ export class FragmentedView {
 
   // ---- Selection ----
 
+  /** The key and fill count of the fragment that holds the head, which tell whether its DOM is the one the browser's selection was drawn in. */
+  headFill() {
+    const key = this.entries[this.indexAt(this.state.selection.head)]?.key;
+    return `${key}:${this.fillCount.get(/** @type {number} */ (key))}`;
+  }
+
   /** Draw the model selection with the browser's own, when the view has focus. */
   selectionToDOM() {
     if (!this.hasFocus() || this.composing) return;
+    this.drawnFill = this.headFill();
     const { selection } = this.state;
     let anchor, head;
     if (selection instanceof NodeSelection) {
@@ -679,7 +812,7 @@ export class FragmentedView {
 
   /** Read the browser's selection back into the model when the browser moved it (a click, an arrow, a Shift-extension). */
   readSelection() {
-    if (this.composing) return;
+    if (this.composing || this.pointer?.moved) return;
     const domSelection = this.dom.ownerDocument.getSelection();
     if (!domSelection || !domSelection.anchorNode || !this.dom.contains(domSelection.anchorNode) || !this.dom.contains(domSelection.focusNode)) return;
     const now = [domSelection.anchorNode, domSelection.anchorOffset, domSelection.focusNode, domSelection.focusOffset];
@@ -778,11 +911,169 @@ export class FragmentedView {
     });
   }
 
+  /**
+   * A press. The view owns the pointer from here to the release: a drag selects from the model's position at the press (or, with Shift, the model's anchor) to the model's position under the pointer, as a selection in one `EditorView` does. The browser's own drag selection cannot be the source: it extends from the DOM position it began at, and the view draws the DOM selection inside the head's fragment only, so a drag that crosses a cut collapses where it lands (a selection drawn at the cut moves the browser's anchor), and one under a pane scrolled by the held button loses the anchor it began at. A double or triple click is left to the browser (a word, a paragraph), and so is a press the model cannot place.
+   * @param {MouseEvent} event
+   */
+  onMouseDown(event) {
+    if (!event.shiftKey) this.drawnAnchor = null;
+    if (this.custom(event) || event.button !== 0 || event.detail > 1) return;
+    this.endPointer();
+    this.readSelection();
+    const at = this.posAtCoords({ left: event.clientX, top: event.clientY });
+    if (!at) return;
+    this.pointer = { anchor: event.shiftKey ? this.state.selection.anchor : at.pos, inside: event.shiftKey ? -1 : at.inside, left: event.clientX, top: event.clientY, moved: false };
+    const doc = this.dom.ownerDocument;
+    doc.addEventListener('mousemove', this.onPointerMove, true);
+    doc.addEventListener('scroll', this.onPointerScroll, true);
+    doc.addEventListener('mouseup', this.onPointerUp, true);
+  }
+
+  /** @param {MouseEvent} event */
+  onMouseMove(event) {
+    const pointer = this.pointer;
+    if (!pointer) return;
+    if (!(event.buttons & 1)) return this.endPointer(); // released outside the window
+    pointer.left = event.clientX;
+    pointer.top = event.clientY;
+    this.followPointer();
+  }
+
+  /** The head goes where the pointer is now: on a move, and when anything scrolls under the held button (a wheel, the browser's own autoscroll at a pane's edge), since the browser sends no move for that. */
+  followPointer() {
+    const pointer = this.pointer;
+    if (!pointer) return;
+    const at = this.posAtCoords(pointer);
+    if (!at) return;
+    const { doc, selection } = this.state;
+    // ponytail: the anchor is the press's position in the document at the press; a transaction that edits before it during a drag does not move it. Map it through the transactions if collaboration matters here.
+    const next = TextSelection.between(doc.resolve(Math.min(pointer.anchor, doc.content.size)), doc.resolve(at.pos));
+    if (next.eq(selection)) return;
+    pointer.moved = true;
+    this.dispatch(this.state.tr.setSelection(next));
+  }
+
+  /**
+   * The release. After a drag the browser's own selection is drawn from the model again, since its drag may have written to it after the last move, and the `selectionchange` that follows would read that. After a click on a selectable atom (Shift leaves it to the browser) the atom is selected, as `prosemirror-view`'s `selectClickedLeaf` does.
+   * @param {MouseEvent} event
+   */
+  onMouseUp(event) {
+    const pointer = this.pointer;
+    this.endPointer();
+    if (!pointer) return;
+    if (pointer.moved) this.selectionToDOM();
+    else if (pointer.inside > -1 && this.selectClickedLeaf(Math.min(pointer.inside, this.state.doc.content.size))) event.preventDefault();
+  }
+
+  /**
+   * @param {number} inside The position of the leaf node under the click.
+   */
+  selectClickedLeaf(inside) {
+    const $pos = this.state.doc.resolve(inside), node = $pos.nodeAfter;
+    if (!node || !node.isAtom || !NodeSelection.isSelectable(node)) return false;
+    this.dispatch(this.state.tr.setSelection(new NodeSelection($pos)));
+    return true;
+  }
+
+  endPointer() {
+    this.pointer = null;
+    const doc = this.dom.ownerDocument;
+    doc.removeEventListener('mousemove', this.onPointerMove, true);
+    doc.removeEventListener('scroll', this.onPointerScroll, true);
+    doc.removeEventListener('mouseup', this.onPointerUp, true);
+  }
+
   /** @param {KeyboardEvent} event */
   onKeyDown(event) {
     if (this.custom(event) || this.composing || event.isComposing || event.keyCode === 229) return;
     this.readSelection();
-    if (this.someProp('handleKeyDown', (f) => f(this, event)) || this.leftAcrossCut(event)) event.preventDefault();
+    if (this.someProp('handleKeyDown', (f) => f(this, event)) || this.captureArrow(event) || this.leftAcrossCut(event)) event.preventDefault();
+  }
+
+  /**
+   * The arrow keys whose move involves a node selection, as `prosemirror-view`'s `captureKeyDown` takes them (`selectHorizontally`, `selectVertically`): into and out of a block atom the browser can put no caret in (a horizontal rule, a facsimile drawn `contenteditable="false"`), over an inline atom, and Shift extending over one. Any other arrow is the browser's.
+   * @param {KeyboardEvent} event
+   */
+  captureArrow(event) {
+    const mods = (event.ctrlKey ? 'c' : '') + (event.metaKey ? 'm' : '') + (event.altKey ? 'a' : '') + (event.shiftKey ? 's' : '');
+    // ponytail: left to right text only; prosemirror-view asks findDirection for the direction of the line, and skips ignorable DOM nodes (skipIgnoredNodes) after a move it leaves to the browser.
+    switch (event.key) {
+      case 'ArrowLeft': return this.selectHorizontally(-1, mods);
+      case 'ArrowRight': return this.selectHorizontally(1, mods);
+      case 'ArrowUp': return this.selectVertically(-1, mods);
+      case 'ArrowDown': return this.selectVertically(1, mods);
+      default: return false;
+    }
+  }
+
+  /**
+   * @param {Selection} selection
+   */
+  applySelection(selection) {
+    this.dispatch(this.state.tr.setSelection(selection).scrollIntoView());
+    return true;
+  }
+
+  /**
+   * The selection one block along from the selection's side, when `dir` is forward or back.
+   * @param {number} dir
+   */
+  moveSelectionBlock(dir) {
+    const { doc, selection } = this.state;
+    const { $anchor, $head } = selection;
+    const $side = dir > 0 ? $anchor.max($head) : $anchor.min($head);
+    const $start = !$side.parent.inlineContent ? $side : $side.depth ? doc.resolve(dir > 0 ? $side.after() : $side.before()) : null;
+    return $start && Selection.findFrom($start, dir);
+  }
+
+  /**
+   * @param {number} dir
+   * @param {string} mods
+   */
+  selectHorizontally(dir, mods) {
+    const { selection, doc } = this.state;
+    if (selection instanceof TextSelection) {
+      if (mods.includes('s')) {
+        const { $head } = selection, node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
+        if (!node || node.isText || !node.isLeaf) return false;
+        return this.applySelection(new TextSelection(selection.$anchor, doc.resolve($head.pos + node.nodeSize * (dir < 0 ? -1 : 1))));
+      } else if (!selection.empty) return false;
+      else if (this.endOfTextblock(dir > 0 ? 'forward' : 'backward')) {
+        const next = this.moveSelectionBlock(dir);
+        return next instanceof NodeSelection ? this.applySelection(next) : false;
+      } else if (!(MAC && mods.includes('m'))) {
+        const { $head } = selection, node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
+        if (!node || node.isText || !node.isAtom) return false;
+        if (NodeSelection.isSelectable(node)) return this.applySelection(new NodeSelection(dir < 0 ? doc.resolve($head.pos - node.nodeSize) : $head));
+        // The browser puts pointless caret positions around an uneditable inline node, so the caret is moved across it here.
+        return this.applySelection(new TextSelection(doc.resolve(dir < 0 ? $head.pos - node.nodeSize : $head.pos + node.nodeSize)));
+      }
+      return false;
+    }
+    if (selection instanceof NodeSelection && selection.node.isInline) return this.applySelection(new TextSelection(dir > 0 ? selection.$to : selection.$from));
+    const next = this.moveSelectionBlock(dir);
+    return next ? this.applySelection(next) : false;
+  }
+
+  /**
+   * Vertical motion that involves a node selection; any other is the browser's.
+   * @param {number} dir
+   * @param {string} mods
+   */
+  selectVertically(dir, mods) {
+    const { selection } = this.state;
+    if ((selection instanceof TextSelection && !selection.empty) || mods.includes('s') || (MAC && mods.includes('m'))) return false;
+    const { $from, $to } = selection;
+    if (!$from.parent.inlineContent || this.endOfTextblock(dir < 0 ? 'up' : 'down')) {
+      const next = this.moveSelectionBlock(dir);
+      if (next instanceof NodeSelection) return this.applySelection(next);
+    }
+    if (!$from.parent.inlineContent) {
+      const side = dir < 0 ? $from : $to;
+      const beyond = selection instanceof AllSelection ? Selection.near(side, dir) : Selection.findFrom(side, dir);
+      return beyond ? this.applySelection(beyond) : false;
+    }
+    return false;
   }
 
   /**
@@ -862,7 +1153,7 @@ export class FragmentedView {
   }
 
   /**
-   * Copy and cut write the model's selection, not the browser's, which holds only the head's fragment: the slice serialized by the schema's `DOMSerializer` as HTML, and its text with a blank line between blocks. Cut then deletes the selection.
+   * Copy and cut write the model's selection, not the browser's, which holds only the head's fragment: the slice as `prosemirror-view`'s clipboard writes it (`serializeForClipboard`: open depths in `data-pm-slice`, `transformCopied`, `clipboardSerializer`, `clipboardTextSerializer`), HTML and plain text. Cut then deletes the selection.
    * @param {ClipboardEvent} event
    */
   onCopy(event) {
@@ -872,10 +1163,10 @@ export class FragmentedView {
     const { selection } = state;
     if (selection.empty || !event.clipboardData) return;
     event.preventDefault();
-    const holder = document.createElement('div');
-    holder.appendChild(DOMSerializer.fromSchema(state.schema).serializeFragment(selection.content().content));
-    event.clipboardData.setData('text/html', holder.innerHTML);
-    event.clipboardData.setData('text/plain', state.doc.textBetween(selection.from, selection.to, '\n\n', '\ufffc'));
+    const { html, text } = serializeForClipboard(this, selection.content());
+    event.clipboardData.clearData();
+    event.clipboardData.setData('text/html', html);
+    event.clipboardData.setData('text/plain', text);
     if (event.type === 'cut' && this.editable) this.dispatch(state.tr.deleteSelection().scrollIntoView().setMeta('uiEvent', 'cut'));
   }
 
@@ -936,6 +1227,7 @@ export class FragmentedView {
   onCompositionEnd(event) {
     const taken = this.custom(event);
     this.composing = false;
+    this.drawnFill = null; // the browser's caret stands in text the model does not hold
     if (!taken) {
       const { from, to, head } = this.state.selection;
       const key = this.entries[this.indexAt(head)]?.key;
@@ -948,6 +1240,7 @@ export class FragmentedView {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.endPointer();
     for (const [type, handler] of Object.entries(this.handlers)) this.dom.removeEventListener(type, handler);
     this.dom.ownerDocument.removeEventListener('selectionchange', this.onSelectionChange);
     for (const view of this.pluginViews) view.destroy?.();

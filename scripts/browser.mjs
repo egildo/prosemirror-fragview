@@ -2,7 +2,7 @@
  * A vite server on an ephemeral port and a headless Chromium page on it, for the suites and scripts that need a real layout.
  *
  * @remarks
- * The port is the operating system's free one, read before vite starts and passed with `strictPort`, so the server never lands on a port another project holds. The server runs in this process and closes with it.
+ * `FRAGVIEW_VITE_CACHE` names vite's `cacheDir` when a checkout must not share another's `node_modules/.vite` (a worktree whose `node_modules` is a link). The port is the operating system's free one, read before vite starts and passed with `strictPort`, so the server never lands on a port another project holds. The server runs in this process and closes with it.
  *
  * @packageDocumentation
  */
@@ -33,7 +33,7 @@ function freePort() {
  */
 export async function open(path, { headless = true } = {}) {
   const port = await freePort();
-  const server = await createServer({ root, logLevel: 'error', server: { port, strictPort: true, host: '127.0.0.1' } });
+  const server = await createServer({ root, logLevel: 'error', cacheDir: process.env.FRAGVIEW_VITE_CACHE, server: { port, strictPort: true, host: '127.0.0.1' } });
   await server.listen();
   const browser = await chromium.launch({ headless });
   const context = await browser.newContext({ viewport: { width: 1400, height: 1000 } });
