@@ -21,7 +21,8 @@
     "fragments": "node scripts/fragments.mjs",
     "compose": "node scripts/compose.mjs",
     "pointer": "node scripts/pointer.mjs",
-    "scroll": "node scripts/scroll.mjs"
+    "scroll": "node scripts/scroll.mjs",
+    "copy": "node scripts/copy.mjs"
   },
   "peerDependencies": {
     "prosemirror-model": "^1.25.0",

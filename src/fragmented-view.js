@@ -10,7 +10,7 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment). `handleDOMEvents` runs first for every event the view listens to.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`; `paste` does not read that attribute yet. `handleDOMEvents` runs first for every event the view listens to.
  *
  * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
@@ -82,6 +82,43 @@ function staticRange(start, end) {
  */
 function withFragments(state) {
   return fragmentsKey.get(state) ? state : state.reconfigure({ plugins: [...state.plugins, fragmentsPlugin()] });
+}
+
+/** The elements the clipboard's HTML needs a parent for, or `<tr>` and `<td>` copied alone are dropped when pasted: `prosemirror-view`'s wrapMap. @type {Record<string, string[]>} */
+const WRAP = { thead: ['table'], tbody: ['table'], tfoot: ['table'], caption: ['table'], colgroup: ['table'], col: ['table', 'colgroup'], tr: ['table', 'tbody'], td: ['table', 'tbody', 'tr'], th: ['table', 'tbody', 'tr'] };
+
+/**
+ * A slice as the clipboard carries it, as `prosemirror-view`'s `serializeForClipboard` writes it: `transformCopied` applied, the slice's single-child levels that are open at both ends taken off the markup and listed in the first element's `data-pm-slice` (with the open depths) so that a ProseMirror editor pasting it puts it back where it came from, the content serialized by `clipboardSerializer` or the schema's, and the text by `clipboardTextSerializer` or the slice's, a blank line between blocks.
+ * @param {FragmentedView} view
+ * @param {Slice} slice
+ */
+function serializeForClipboard(view, slice) {
+  view.someProp('transformCopied', (f) => { slice = f(slice, view); });
+  let { content, openStart, openEnd } = slice;
+  const context = [];
+  while (openStart > 1 && openEnd > 1 && content.childCount === 1 && /** @type {PMNode} */ (content.firstChild).childCount === 1) {
+    openStart--;
+    openEnd--;
+    const node = /** @type {PMNode} */ (content.firstChild);
+    context.push(node.type.name, node.attrs !== node.type.defaultAttrs ? node.attrs : null);
+    content = node.content;
+  }
+  const serializer = view.someProp('clipboardSerializer') || DOMSerializer.fromSchema(view.state.schema);
+  const doc = document.implementation.createHTMLDocument('title'), wrap = doc.createElement('div');
+  wrap.appendChild(serializer.serializeFragment(content, { document: doc }));
+  let first = wrap.firstChild, wrappers = 0, needs;
+  while (first && first.nodeType === 1 && (needs = WRAP[first.nodeName.toLowerCase()])) {
+    for (let i = needs.length - 1; i >= 0; i--) {
+      const wrapper = doc.createElement(needs[i]);
+      while (wrap.firstChild) wrapper.appendChild(wrap.firstChild);
+      wrap.appendChild(wrapper);
+      wrappers++;
+    }
+    first = wrap.firstChild;
+  }
+  if (first && first.nodeType === 1) /** @type {Element} */ (first).setAttribute('data-pm-slice', `${openStart} ${openEnd}${wrappers ? ` -${wrappers}` : ''} ${JSON.stringify(context)}`);
+  const text = view.someProp('clipboardTextSerializer', (f) => f(slice, view)) || slice.content.textBetween(0, slice.content.size, '\n\n', '\ufffc');
+  return { html: wrap.innerHTML, text };
 }
 
 /**
@@ -1012,7 +1049,7 @@ export class FragmentedView {
   }
 
   /**
-   * Copy and cut write the model's selection, not the browser's, which holds only the head's fragment: the slice serialized by the schema's `DOMSerializer` as HTML, and its text with a blank line between blocks. Cut then deletes the selection.
+   * Copy and cut write the model's selection, not the browser's, which holds only the head's fragment: the slice as `prosemirror-view`'s clipboard writes it (`serializeForClipboard`: open depths in `data-pm-slice`, `transformCopied`, `clipboardSerializer`, `clipboardTextSerializer`), HTML and plain text. Cut then deletes the selection.
    * @param {ClipboardEvent} event
    */
   onCopy(event) {
@@ -1022,10 +1059,10 @@ export class FragmentedView {
     const { selection } = state;
     if (selection.empty || !event.clipboardData) return;
     event.preventDefault();
-    const holder = document.createElement('div');
-    holder.appendChild(DOMSerializer.fromSchema(state.schema).serializeFragment(selection.content().content));
-    event.clipboardData.setData('text/html', holder.innerHTML);
-    event.clipboardData.setData('text/plain', state.doc.textBetween(selection.from, selection.to, '\n\n', '\ufffc'));
+    const { html, text } = serializeForClipboard(this, selection.content());
+    event.clipboardData.clearData();
+    event.clipboardData.setData('text/html', html);
+    event.clipboardData.setData('text/plain', text);
     if (event.type === 'cut' && this.editable) this.dispatch(state.tr.deleteSelection().scrollIntoView().setMeta('uiEvent', 'cut'));
   }
 
