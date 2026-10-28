@@ -1,4 +1,4 @@
-// usage: node scripts/compose.mjs [--headed] [--boxes] [--generic] — compositions driven through Chromium's input method over CDP (`Input.imeSetComposition` k, か, かn, かな, then `Input.insertText "仮名"`), each performed identically on the EditorView (left) and on the FragmentedView (right) of the harness from a fresh state: in plain text, at both edges of a non-inclusive mark (a link) and of an inclusive one (strong), over a selection, refused by `handleTextInput`, with no `compositionstart` and with one a `handleDOMEvents` handler takes, cancelled, and recomposing the word before the caret through a replacement range. `--boxes` puts the right side under 320 × 480 boxes; `--generic` runs the plain and edge acts on the studio's schema lab under structured marks instead. For each act it prints whether the two documents and selections are equal after the act, after one Mod-z and after Shift-Mod-z, the marks the composed text carries on each side, whether the right side's text is the text a fresh fill of its document draws (the chain invalidated and refilled from the model), after the act and after the undo, and whether it draws the composed text (for a cancelled composition, its last in-progress text) as often as its document holds it, where its DOM caret stands, the steps it applied, and, under `--generic`, whether its mark instances survived and whether a view attribute reached the document. Exits 1 when an act fails any of these.
+// usage: node scripts/compose.mjs [--headed] [--boxes] [--generic] — compositions driven through Chromium's input method over CDP (`Input.imeSetComposition` k, か, かn, かな, then `Input.insertText "仮名"`), each performed identically on the EditorView (left) and on the FragmentedView (right) of the harness from a fresh state: in plain text, at both edges of a non-inclusive mark (a link) and of an inclusive one (strong), over a selection, refused by `handleTextInput`, with no `compositionstart` and with one a `handleDOMEvents` handler takes, cancelled, and recomposing the word before the caret through a replacement range, and, under `--boxes`, in a paragraph divided between two boxes. `--boxes` puts the right side under 320 × 480 boxes; `--generic` runs the plain and edge acts on the studio's schema lab under structured marks instead. For each act it prints whether the two documents and selections are equal after the act, after one Mod-z and after Shift-Mod-z, the marks the composed text carries on each side, whether the right side's text is the text a fresh fill of its document draws (the chain invalidated and refilled from the model), after the act and after the undo, and whether it draws the composed text (for a cancelled composition, its last in-progress text) as often as its document holds it, where its DOM caret stands, the steps it applied, and, under `--generic`, whether its mark instances survived and whether a view attribute reached the document. Exits 1 when an act fails any of these.
 import { open } from './browser.mjs';
 
 const MOD = 'ControlOrMeta';
@@ -70,6 +70,16 @@ const acts = generic ? [
   } },
   { name: 'compositionstart taken by a handleDOMEvents handler', props: 'takeStart', at: async () => [await find('without effort'), 1] },
   { name: 'cancelled (k, か, then an empty composition)', at: async () => [await find('without effort'), 1], async run() { await compose(['k', 'か', ''], null); }, commit: '', probe: 'か' },
+  // Only under boxes: a textblock divided between two boxes, composed in the piece before the cut. The document must keep the piece after it (the read-back parsed only the piece the caret's box shows and deleted the rest).
+  { name: 'in a paragraph divided between two boxes', boxes: true, at: async () => [await page.evaluate(() => {
+    const { right } = window.harness;
+    for (const e of right.entries) {
+      if (e.to == null) continue;
+      const $to = right.state.doc.resolve(e.to);
+      if ($to.parent.isTextblock && $to.parentOffset > 12 && $to.parent.content.size - $to.parentOffset > 5) return e.to - 10;
+    }
+    return null;
+  }), -1] },
   { name: 'recomposing the word before the caret (a replacement range)', at: async () => [(await find('composition')) + 'composition'.length, -1], async run() {
     // The composition is set over the word before the caret, then committed as its correction. Chromium selects the replacement range before `compositionstart`, so this is a reconversion over a selection; Android's composing region, set over text with the selection left collapsed, has no CDP command. The word is in the first textblock, where the editing host's plain-text offsets, which the range counts in, are the text's.
     const offset = await page.evaluate(() => { const s = getSelection(); const r = document.createRange(); r.setStart(document.activeElement, 0); r.setEnd(s.focusNode, s.focusOffset); return r.toString().length; });
@@ -107,6 +117,7 @@ const look = (commit) => page.evaluate((c) => {
 const rows = [];
 let failed = false;
 for (const act of acts) {
+  if (act.boxes && !process.argv.includes('--boxes')) continue;
   const commit = act.commit ?? '仮名';
   const probe = act.probe ?? commit;
   const notes = [];
