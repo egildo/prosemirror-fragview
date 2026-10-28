@@ -12,7 +12,7 @@
  *
  * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment). `handleDOMEvents` runs first for every event the view listens to.
  *
- * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position.
+ * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
  * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
@@ -125,6 +125,11 @@ export class FragmentedView {
     this.filling = new Map();
     /** The browser is composing; nothing is rendered until it ends. */
     this.composing = false;
+    /** The press the view owns until its release: the model position it selects from, where the pointer last was, and whether a move has taken over the selection. @type {{ anchor: number, left: number, top: number, moved: boolean } | null} */
+    this.pointer = null;
+    this.onPointerMove = (/** @type {MouseEvent} */ e) => this.onMouseMove(e);
+    this.onPointerScroll = () => this.followPointer();
+    this.onPointerUp = () => this.onMouseUp();
     this.editable = true;
     this.destroyed = false;
     /** @type {[globalThis.Node | null, number, globalThis.Node | null, number] | null} */
@@ -145,7 +150,7 @@ export class FragmentedView {
       cut: (e) => this.onCopy(e),
       compositionstart: (e) => this.onCompositionStart(e),
       compositionend: (e) => this.onCompositionEnd(e),
-      mousedown: (e) => { if (!e.shiftKey) this.drawnAnchor = null; },
+      mousedown: (e) => this.onMouseDown(e),
     };
     for (const [type, handler] of Object.entries(this.handlers)) this.dom.addEventListener(type, handler);
     this.onSelectionChange = () => { if (this.hasFocus()) this.readSelection(); };
@@ -679,7 +684,7 @@ export class FragmentedView {
 
   /** Read the browser's selection back into the model when the browser moved it (a click, an arrow, a Shift-extension). */
   readSelection() {
-    if (this.composing) return;
+    if (this.composing || this.pointer?.moved) return;
     const domSelection = this.dom.ownerDocument.getSelection();
     if (!domSelection || !domSelection.anchorNode || !this.dom.contains(domSelection.anchorNode) || !this.dom.contains(domSelection.focusNode)) return;
     const now = [domSelection.anchorNode, domSelection.anchorOffset, domSelection.focusNode, domSelection.focusOffset];
@@ -776,6 +781,63 @@ export class FragmentedView {
       const handler = handlers[event.type];
       return handler ? handler(this, event) || event.defaultPrevented : false;
     });
+  }
+
+  /**
+   * A press. The view owns the pointer from here to the release: a drag selects from the model's position at the press (or, with Shift, the model's anchor) to the model's position under the pointer, as a selection in one `EditorView` does. The browser's own drag selection cannot be the source: it extends from the DOM position it began at, and the view draws the DOM selection inside the head's fragment only, so a drag that crosses a cut collapses where it lands (a selection drawn at the cut moves the browser's anchor), and one under a pane scrolled by the held button loses the anchor it began at. A double or triple click is left to the browser (a word, a paragraph), and so is a press the model cannot place.
+   * @param {MouseEvent} event
+   */
+  onMouseDown(event) {
+    if (!event.shiftKey) this.drawnAnchor = null;
+    if (this.custom(event) || event.button !== 0 || event.detail > 1) return;
+    this.endPointer();
+    this.readSelection();
+    const at = this.posAtCoords({ left: event.clientX, top: event.clientY });
+    if (!at) return;
+    this.pointer = { anchor: event.shiftKey ? this.state.selection.anchor : at.pos, left: event.clientX, top: event.clientY, moved: false };
+    const doc = this.dom.ownerDocument;
+    doc.addEventListener('mousemove', this.onPointerMove, true);
+    doc.addEventListener('scroll', this.onPointerScroll, true);
+    doc.addEventListener('mouseup', this.onPointerUp, true);
+  }
+
+  /** @param {MouseEvent} event */
+  onMouseMove(event) {
+    const pointer = this.pointer;
+    if (!pointer) return;
+    if (!(event.buttons & 1)) return this.endPointer(); // released outside the window
+    pointer.left = event.clientX;
+    pointer.top = event.clientY;
+    this.followPointer();
+  }
+
+  /** The head goes where the pointer is now: on a move, and when anything scrolls under the held button (a wheel, the browser's own autoscroll at a pane's edge), since the browser sends no move for that. */
+  followPointer() {
+    const pointer = this.pointer;
+    if (!pointer) return;
+    const at = this.posAtCoords(pointer);
+    if (!at) return;
+    const { doc, selection } = this.state;
+    // ponytail: the anchor is the press's position in the document at the press; a transaction that edits before it during a drag does not move it. Map it through the transactions if collaboration matters here.
+    const next = TextSelection.between(doc.resolve(Math.min(pointer.anchor, doc.content.size)), doc.resolve(at.pos));
+    if (next.eq(selection)) return;
+    pointer.moved = true;
+    this.dispatch(this.state.tr.setSelection(next));
+  }
+
+  /** The release: when a move took over the selection, the browser's own is drawn from the model again, since its drag may have written to it after the last move, and the `selectionchange` that follows would read that. */
+  onMouseUp() {
+    const moved = this.pointer?.moved;
+    this.endPointer();
+    if (moved) this.selectionToDOM();
+  }
+
+  endPointer() {
+    this.pointer = null;
+    const doc = this.dom.ownerDocument;
+    doc.removeEventListener('mousemove', this.onPointerMove, true);
+    doc.removeEventListener('scroll', this.onPointerScroll, true);
+    doc.removeEventListener('mouseup', this.onPointerUp, true);
   }
 
   /** @param {KeyboardEvent} event */
@@ -948,6 +1010,7 @@ export class FragmentedView {
   destroy() {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.endPointer();
     for (const [type, handler] of Object.entries(this.handlers)) this.dom.removeEventListener(type, handler);
     this.dom.ownerDocument.removeEventListener('selectionchange', this.onSelectionChange);
     for (const view of this.pluginViews) view.destroy?.();
