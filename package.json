@@ -20,7 +20,8 @@
     "acts": "node scripts/acts.mjs",
     "fragments": "node scripts/fragments.mjs",
     "compose": "node scripts/compose.mjs",
-    "pointer": "node scripts/pointer.mjs"
+    "pointer": "node scripts/pointer.mjs",
+    "scroll": "node scripts/scroll.mjs"
   },
   "peerDependencies": {
     "prosemirror-model": "^1.25.0",

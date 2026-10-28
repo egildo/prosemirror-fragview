@@ -16,9 +16,11 @@
  *
  * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
- * Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
+ * Scrolling. A transaction that asks for it (`scrollIntoView`) scrolls the head's rectangle into the view of every scrolling ancestor, as `EditorView` does, with `scrollThreshold`, `scrollMargin` and `handleScrollToSelection` read as it reads them. The head may stand in a fragment still to be filled when the transaction is applied, so the scroll is made again at each update until the chain has settled up to the head.
+
+Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
  *
- * What the view does not do yet, besides the above: node views, `handleClick` and its kin, a node selection by clicking a leaf, drag and drop (both halves are refused), `scrollIntoView` on a transaction that asks for it, `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
+ * What the view does not do yet, besides the above: node views, `handleClick` and its kin, a node selection by clicking a leaf, drag and drop (both halves are refused), `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
  *
  * @packageDocumentation
  */
@@ -82,6 +84,55 @@ function withFragments(state) {
   return fragmentsKey.get(state) ? state : state.reconfigure({ plugins: [...state.plugins, fragmentsPlugin()] });
 }
 
+/**
+ * The parent of a node for scrolling, through slots and shadow roots as `prosemirror-view`'s `parentNode` goes.
+ * @param {globalThis.Node} node
+ * @returns {globalThis.Node | null}
+ */
+function parentNode(node) {
+  const parent = /** @type {any} */ (node).assignedSlot || node.parentNode;
+  return parent && parent.nodeType === 11 ? parent.host : parent;
+}
+
+/**
+ * Scroll every scrolling ancestor of `startDOM`, and the window, until `rect` (viewport coordinates) is inside it, as `prosemirror-view`'s `scrollRectIntoView` does, with the same `scrollThreshold` and `scrollMargin` props (a margin of 5 by default).
+ * @param {FragmentedView} view
+ * @param {{ left: number, right: number, top: number, bottom: number }} rect
+ * @param {globalThis.Node} startDOM
+ */
+function scrollRectIntoView(view, rect, startDOM) {
+  if (!(rect.top < rect.bottom || rect.left < rect.right) && rect.left === 0) return; // no CSS box
+  const side = (/** @type {any} */ value, /** @type {'top' | 'right' | 'bottom' | 'left'} */ name) => (typeof value === 'number' ? value : value[name]);
+  const threshold = view.someProp('scrollThreshold') || 0, margin = view.someProp('scrollMargin') || 5;
+  const doc = view.dom.ownerDocument;
+  for (let parent = /** @type {globalThis.Node | null} */ (startDOM); parent;) {
+    if (parent.nodeType !== 1) { parent = parentNode(parent); continue; }
+    const el = /** @type {HTMLElement} */ (parent);
+    const atTop = el === doc.body;
+    const bounding = atTop
+      ? { left: 0, top: 0, right: doc.defaultView?.visualViewport?.width ?? doc.documentElement.clientWidth, bottom: doc.defaultView?.visualViewport?.height ?? doc.documentElement.clientHeight }
+      : (() => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.left + el.clientWidth * (r.width / el.offsetWidth || 1), bottom: r.top + el.clientHeight * (r.height / el.offsetHeight || 1) }; })();
+    let moveX = 0, moveY = 0;
+    if (rect.top < bounding.top + side(threshold, 'top')) moveY = -(bounding.top - rect.top + side(margin, 'top'));
+    else if (rect.bottom > bounding.bottom - side(threshold, 'bottom')) moveY = rect.bottom - rect.top > bounding.bottom - bounding.top ? rect.top + side(margin, 'top') - bounding.top : rect.bottom - bounding.bottom + side(margin, 'bottom');
+    if (rect.left < bounding.left + side(threshold, 'left')) moveX = -(bounding.left - rect.left + side(margin, 'left'));
+    else if (rect.right > bounding.right - side(threshold, 'right')) moveX = rect.right - bounding.right + side(margin, 'right');
+    if (moveX || moveY) {
+      if (atTop) doc.defaultView?.scrollBy(moveX, moveY);
+      else {
+        const startX = el.scrollLeft, startY = el.scrollTop;
+        if (moveY) el.scrollTop += moveY;
+        if (moveX) el.scrollLeft += moveX;
+        const dX = el.scrollLeft - startX, dY = el.scrollTop - startY;
+        rect = { left: rect.left - dX, top: rect.top - dY, right: rect.right - dX, bottom: rect.bottom - dY };
+      }
+    }
+    const position = atTop ? 'fixed' : getComputedStyle(el).position;
+    if (/^(fixed|sticky)$/.test(position)) break;
+    parent = position === 'absolute' ? el.offsetParent : parentNode(el);
+  }
+}
+
 export class FragmentedView {
   /**
    * @param {HTMLElement | ((dom: HTMLElement) => void) | null} place Where the view's root element goes: appended to an element, or handed to a function.
@@ -125,6 +176,8 @@ export class FragmentedView {
     this.filling = new Map();
     /** The browser is composing; nothing is rendered until it ends. */
     this.composing = false;
+    /** A transaction asked for the selection to be scrolled into view and the chain has yet to settle: 'ask' before `handleScrollToSelection` has been asked, 'settle' after. @type {'ask' | 'settle' | null} */
+    this.scrolling = null;
     /** The head's fragment and how many fills it had when the browser's selection was last drawn from the model. @type {string | null} */
     this.drawnFill = null;
     /** The press the view owns until its release: the model position it selects from, where the pointer last was, and whether a move has taken over the selection. @type {{ anchor: number, left: number, top: number, moved: boolean } | null} */
@@ -283,7 +336,30 @@ export class FragmentedView {
     if (!prev || prev.doc !== this.state.doc || !prev.selection.eq(this.state.selection) || this.headFill() !== this.drawnFill) this.selectionToDOM();
     this.paint();
     this.updatePluginViews(prev);
+    if (prev && /** @type {any} */ (this.state).scrollToSelection > /** @type {any} */ (prev).scrollToSelection) this.scrolling = 'ask';
+    if (this.scrolling) this.followSelection();
     this.lastUpdateMs = performance.now() - started;
+  }
+
+  /**
+   * Scroll the head into view for a transaction that asked (`scrollIntoView`), as `EditorView.scrollToSelection` does: `handleScrollToSelection` is asked once, then the head's rectangle (a node selection's node) is scrolled into the view of every scrolling ancestor. The head may stand in a fragment the ripple has yet to fill (Enter at a page's foot), or move when the fragments before it are refilled, so the scroll is made again at each update until the chain has settled.
+   */
+  followSelection() {
+    const { selection } = this.state;
+    const point = this.pointAt(selection.head);
+    if (point) {
+      if (this.scrolling === 'ask') {
+        this.scrolling = 'settle';
+        if (this.someProp('handleScrollToSelection', (f) => f(this))) this.scrolling = null;
+      }
+      if (this.scrolling) {
+        const node = selection instanceof NodeSelection ? this.nodeDOM(selection.from) : null;
+        if (!(selection instanceof NodeSelection)) scrollRectIntoView(this, this.coordsAtPos(selection.head, 1), point.node);
+        else if (node) scrollRectIntoView(this, node.getBoundingClientRect(), point.node);
+      }
+    }
+    // Settled for the head: no fill in flight and no dirty entry up to the head's (a dirty one after it moves nothing before it, and under the window policy stays dirty until it comes near).
+    if (this.filling.size === 0 && !this.entries.slice(0, this.indexAt(selection.head) + 1).some((e) => e.dirty)) this.scrolling = null;
   }
 
   /** Put each entry's element in the chain's order: its container's root when it is built, else its placeholder. */
