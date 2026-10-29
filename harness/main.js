@@ -3,6 +3,8 @@
  *
  * The query string sets the right-hand side: `boxes=320x480` gives it a chain of `OverflowBox`es of that width and height (one infinite box without it), `window=near` builds only the boxes near the viewport, `long=1` mounts the document ten times over (4 240 words) on both sides, and `late=1` adds an image whose `src` (`late.svg`) arrives after the fill. `schema=generic` mounts the studio's schema lab under its generic schema instead (`generic.js`), with `marks=structured` (the default) or `marks=nodes`; `long` and `late` do not apply to it.
  *
+ * The schema is the basic one with lists and one block atom more, `facsimile`: an `<object>` holding a canvas, drawn `contenteditable="false"` as the studio draws its facsimile, which only `scripts/atoms.mjs` puts in a document.
+ *
  * The view takes the default words registry, since no sheet here selects on a paginator's words (the lab's own select on none), and the page adopts the renderer's two sheets for it, `AWAY_SHEET` and `CONTINUATION_SHEET`, and under the generic schema the lab's own. `harness.words` is the registry, for the scripts that read the words.
  *
  * @packageDocumentation
@@ -35,7 +37,9 @@ document.adoptedStyleSheets = [AWAY_SHEET, CONTINUATION_SHEET, ...(generic ? [ge
   return sheet;
 });
 
-const schema = generic?.schema ?? new Schema({ nodes: addListNodes(basic.spec.nodes, 'paragraph block*', 'block'), marks: basic.spec.marks });
+/** A block atom drawn `contenteditable="false"` as the studio's facsimile is: an `<object>` with a canvas for its fallback, the page's own aspect ratio and no `data`, so that the object shows its canvas. The browser can put no caret in it. In the studio it is the canvas that makes Chromium drop a selection drawn around it (measured: take the canvas away and the selection stays); here it does not drop, so `scripts/atoms.mjs` plays the browser's part. */
+const facsimile = { group: 'block', atom: true, selectable: true, toDOM: () => ['object', { role: 'img', contenteditable: 'false', style: 'display:block;aspect-ratio:400/300;width:100%;overflow:clip' }, ['canvas', { style: 'display:block;width:100%;height:100%;object-fit:contain' }]] };
+const schema = generic?.schema ?? new Schema({ nodes: addListNodes(basic.spec.nodes, 'paragraph block*', 'block').addToEnd('facsimile', facsimile), marks: basic.spec.marks });
 /** Bold and Italic: ProseMirror's toggle on the basic schema, the studio's instance toggle under structured marks, none under inline nodes. */
 const toggle = (name) => (!schema.marks[name] ? () => false : generic ? generic.g.toggleStructured(schema.marks[name]) : toggleMark(schema.marks[name]));
 
