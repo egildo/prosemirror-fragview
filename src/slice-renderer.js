@@ -197,6 +197,8 @@ function render(words, doc, from, to, document) {
     if (cutOff && !resumed) add(dom, words.start);
     if (!resumed && !node.isInline && start >= opened && start < from) add(dom, words.adjoin);
     if (node.isInline && node.isLeaf && structured && typeof node.attrs.instance === 'string') /** @type {Element} */ (dom).setAttribute(INSTANCE_STAMP, node.attrs.instance);
+    // A node drawn with no content hole is one unit for the caret, as `prosemirror-view` draws it (`NodeViewDesc.create`): the browser puts no caret in the text an atom shows.
+    if (!contentDOM && dom.nodeType === 1 && dom.nodeName !== 'BR' && !(/** @type {Element} */ (dom).hasAttribute('contenteditable'))) /** @type {Element} */ (dom).setAttribute('contenteditable', 'false');
     if (contentDOM) {
       if (node.isLeaf) throw new RangeError('Content hole not allowed in a leaf node spec');
       // A divided ancestor is the open node at the next depth of `$from`: its children before the live one go first, put away.
