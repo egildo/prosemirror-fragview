@@ -1,6 +1,6 @@
 {
   "name": "prosemirror-fragview",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "A fragmented view for ProseMirror: the editor state rendered into a chain of fragmentainers, each a component that pulls content from a position and gives back the position where it had to stop.",
   "type": "module",
   "main": "src/index.js",
