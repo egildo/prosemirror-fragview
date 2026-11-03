@@ -13,6 +13,10 @@ test('a leaf drawn with text is not editable', () => {
   assert.equal(r.editable, 'false');
 });
 
+test('nodeDOM of an inline atom after text, plain or marked, is its element', () => {
+  assert.deepEqual(r.nodeDOM, ['a', 'b']);
+});
+
 test('a click on the text of an atom selects it', () => {
   assert.equal(r.clicked, `NodeSelection ${r.at}-${r.at + 1}`);
 });

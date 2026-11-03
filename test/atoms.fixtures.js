@@ -9,13 +9,13 @@ import { schema as basic } from 'prosemirror-schema-basic';
 import { EditorState, TextSelection } from 'prosemirror-state';
 import { FragmentedView, OverflowBox } from '../src/index.js';
 
-const values = new Map([['a', 'Rome']]);
+const values = new Map([['a', 'Rome'], ['b', 'Tiber']]);
 const variable = { group: 'inline', inline: true, atom: true, selectable: true, attrs: { id: {} }, toDOM: (/** @type {any} */ n) => ['dm-variable', { 'data-id': n.attrs.id }, values.get(n.attrs.id) ?? '—'] };
 const schema = new Schema({ nodes: basic.spec.nodes.addToEnd('variable', variable), marks: basic.spec.marks });
 const para = (/** @type {string} */ t) => schema.node('paragraph', null, schema.text(t));
 const d = schema.node('doc', null, [
   ...Array.from({ length: 12 }, (_, i) => para(`${i + 1}. A paragraph long enough to wrap over a few lines of a narrow box.`)),
-  schema.node('paragraph', null, [schema.text('The city is '), schema.node('variable', { id: 'a' }), schema.text(' today.')]),
+  schema.node('paragraph', null, [schema.text('The city is '), schema.node('variable', { id: 'a' }), schema.text(' today, by '), schema.text('the river ', [schema.marks.strong.create()]), schema.node('variable', { id: 'b' }), schema.text('.')]),
 ]);
 
 /** @param {FragmentedView} view */
@@ -36,10 +36,15 @@ export async function run() {
   const view = new FragmentedView(document.body, { state: EditorState.create({ doc: d }), containers: () => new OverflowBox({ width: 300, height: 200 }) });
   await settled(view);
   let at = -1;
-  view.state.doc.descendants((n, pos) => { if (n.type.name === 'variable') at = pos; });
+  /** @type {number[]} */
+  const vars = [];
+  view.state.doc.descendants((n, pos) => { if (n.type.name === 'variable') vars.push(pos); });
+  at = vars[0];
   const results = {};
   const el = /** @type {HTMLElement} */ (view.dom.querySelector('dm-variable'));
   results.editable = el.getAttribute('contenteditable');
+  // `nodeDOM` of each variable: one after plain text, one after text in a mark.
+  results.nodeDOM = vars.map((p) => view.nodeDOM(p)?.getAttribute('data-id') ?? null);
 
   // A click in the middle of the variable's text.
   view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1)));

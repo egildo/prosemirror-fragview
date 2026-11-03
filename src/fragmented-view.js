@@ -754,7 +754,14 @@ export class FragmentedView {
     const entries = this.entries;
     const opens = entries.findIndex((e, i) => i > 0 && entries[i - 1].to != null && openedAt(doc, /** @type {number} */ (entries[i - 1].to)) === pos);
     const point = opens > 0 ? this.containerPoint(entries[opens], pos) : this.pointAt(pos);
-    const child = point && point.node.nodeType === 1 ? point.node.childNodes[point.offset] : null;
+    let child = point && point.node.nodeType === 1 ? point.node.childNodes[point.offset] : null;
+    // An inline node after text: the point is the text's end, and the node is what follows it, out of any mark that closes there.
+    if (point && point.node.nodeType === 3 && point.offset === /** @type {Text} */ (point.node).length) {
+      let n = point.node;
+      while (n.parentNode && n.parentNode !== this.dom && !n.nextSibling) n = n.parentNode;
+      const next = n.nextSibling, parent = n.parentNode;
+      if (next && parent && this.posAt(parent, Array.prototype.indexOf.call(parent.childNodes, next)) === pos) child = next;
+    }
     return child && child.nodeType === 1 ? child : null;
   }
 

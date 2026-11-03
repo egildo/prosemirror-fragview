@@ -573,12 +573,13 @@ The slice renderer draws every node rendered with no content hole (a `<br>` exce
 
 `redraw(from, to = from)` marks dirty every entry that shows a position of the range, in one `dirtied` transaction (which now takes a list of keys), and the chain refills from there in the containers it has, rippling as after an edit. It is for a rendering that reads something no step on the node announces; `invalidate()` stays the word for a change of every fill's conditions.
 
+`nodeDOM` of an inline node after text answered null: the point at its position is the end of the text before it, not an element. It now takes what follows that text, out of any mark that closes there, when that element starts at the position, so a host that places a menu on a node selection through `nodeDOM` finds the atom.
+
 ## The numbers
 
-`test/atoms.test.js` draws twelve paragraphs and one with a `variable` atom under 300 × 200 boxes, the variable's `toDOM` reading its value from a store. Each half of the click fix fails alone: with main's renderer the atom is editable (`contenteditable` null); with main's `posAtCoords` a click in the middle of its text leaves a text selection. Together the click gives a `NodeSelection` over the atom. After a longer value is put in the store, `redraw` at the atom's position shows the new text, refills only the fragment that holds the atom and keeps every container. `npm test` 66 of 66; every parity script as before (copy 10 of 10 and 11 of 11 under boxes, atoms 11 of 11 in both layouts, compose 11 of 11, pointer 9 of 9 in both, scroll 8 of 8 in both).
+`test/atoms.test.js` draws twelve paragraphs and one with a `variable` atom under 300 × 200 boxes, the variable's `toDOM` reading its value from a store. Each half of the click fix fails alone: with main's renderer the atom is editable (`contenteditable` null); with main's `posAtCoords` a click in the middle of its text leaves a text selection. Together the click gives a `NodeSelection` over the atom. After a longer value is put in the store, `redraw` at the atom's position shows the new text, refills only the fragment that holds the atom and keeps every container. `nodeDOM` of the paragraph's two variables, one after plain text and one after bold text, answered null for both on main and answers each one's element with the fix. `npm test` 67 of 67; every parity script as before (copy 10 of 10 and 11 of 11 under boxes, atoms 11 of 11 in both layouts, compose 11 of 11, pointer 9 of 9 in both, scroll 8 of 8 in both).
 
 ## What is not done
 
 - **Node views.** No `nodeViews` prop. A leaf never splits, so one for leaves could follow `prosemirror-view` closely; one for a block that crosses a cut is built per fragment or not at all, which needs a ruling first.
-- **`nodeDOM` of an inline node after text answers null** (measured on the test's variable): the point at its position is the end of the text before it, not the element. A host that positions a menu on a node selection through `nodeDOM` finds nothing for an inline atom.
 - **A redraw by node type** is the host's: it knows which positions its outside value reaches.
