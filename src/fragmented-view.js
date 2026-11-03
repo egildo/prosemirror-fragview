@@ -962,7 +962,7 @@ export class FragmentedView {
   }
 
   /**
-   * Inline decorations with a class, one highlight per class, clipped to each built fragment. A fragment keeps the ranges of its last paint while its DOM is the same fill's and the decorations over its range are the same, relative to its `from`; so a key repaints the fragments it refilled, not the document.
+   * Inline decorations with a class, one highlight per class, clipped to each built fragment. A fragment keeps the ranges of its last paint while its DOM is the same settled fill's and the decorations over its range are the same, relative to its `from` (a paint while its fill is in flight is not kept); so a key repaints the fragments it refilled, not the document.
    */
   paintDecorations() {
     const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
@@ -971,8 +971,9 @@ export class FragmentedView {
     const sets = [];
     this.someProp('decorations', (f) => {
       const source = f(this.state);
-      if (source?.find) sets.push(source);
-      source?.forEachSet?.((/** @type {any} */ set) => sets.push(set));
+      // A `DecorationSet` is a source too: `forEachSet` gives each set once, itself included.
+      if (source?.forEachSet) source.forEachSet((/** @type {any} */ set) => sets.push(set));
+      else if (source?.find) sets.push(source);
       return false; // every source is read
     });
     const size = this.state.doc.content.size;
@@ -994,7 +995,10 @@ export class FragmentedView {
           const range = staticRange(start, stop);
           for (const cls of d.type.attrs.class.split(/\s+/).filter(Boolean)) ranges.push([cls, range]);
         }
-        this.painted.set(entry.key, (cached = { fill, sig, ranges }));
+        cached = { fill, sig, ranges };
+        // A container may write its DOM after its fill has started (a page the engine cuts): a paint while the fill is in flight measures DOM that is not the fill's, and is not kept.
+        if (this.filling.has(entry.key)) this.painted.delete(entry.key);
+        else this.painted.set(entry.key, cached);
       }
       for (const [cls, range] of cached.ranges) {
         if (!byClass.has(cls)) byClass.set(cls, []);
