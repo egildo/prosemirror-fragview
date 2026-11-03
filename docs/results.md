@@ -583,3 +583,17 @@ The slice renderer draws every node rendered with no content hole (a `<br>` exce
 
 - **Node views.** No `nodeViews` prop. A leaf never splits, so one for leaves could follow `prosemirror-view` closely; one for a block that crosses a cut is built per fragment or not at all, which needs a ruling first.
 - **A redraw by node type** is the host's: it knows which positions its outside value reaches.
+
+# Decorations under a container that writes late: the results
+
+Codeberg issue 4, *Decoration paint cached empty while a fill is in flight*, from the Tiptap host, whose comments are inline decorations painted on Cicero pages. A comment present from the first state was never highlighted.
+
+## The fix
+
+`paintDecorations` keeps a fragment's ranges keyed on its fill count and the decorations over it, and `fill` counts a fill when it starts. A Cicero page writes its DOM after its wait, so a paint while the fill was in flight found no points, kept empty ranges under the new count, and the paint after the fill reused them. A paint while a fragment's fill is in flight is now drawn but not kept, so the paint after the fill measures the DOM the container wrote.
+
+Found by the same test: a `DecorationSet` returned by a `decorations` prop was read twice, once because it has `find` and again through its own `forEachSet`, so every range was painted twice. A source with `forEachSet` is now read through it alone.
+
+## The numbers
+
+`test/decorations.test.js` fills twelve paragraphs into 300 × 200 boxes that wait 30 ms before filling, with an inline decoration on the second box from the first state. On main the class has no range once the chain has settled; with only the first fix it has two, the same text twice; with both, one range over the decorated text. `npm test` 68 of 68, every parity script exits 0, with and without boxes.
