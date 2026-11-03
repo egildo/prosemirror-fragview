@@ -110,7 +110,7 @@ function serializeForClipboard(view, slice) {
     content = node.content;
   }
   const serializer = view.someProp('clipboardSerializer') || DOMSerializer.fromSchema(view.state.schema);
-  const doc = document.implementation.createHTMLDocument('title'), wrap = doc.createElement('div');
+  const doc = view.dom.ownerDocument.implementation.createHTMLDocument('title'), wrap = doc.createElement('div');
   wrap.appendChild(serializer.serializeFragment(content, { document: doc }));
   let first = wrap.firstChild, wrappers = 0, needs;
   while (first && first.nodeType === 1 && (needs = WRAP[first.nodeName.toLowerCase()])) {
@@ -234,7 +234,7 @@ function scrollRectIntoView(view, rect, startDOM) {
         rect = { left: rect.left - dX, top: rect.top - dY, right: rect.right - dX, bottom: rect.bottom - dY };
       }
     }
-    const position = atTop ? 'fixed' : getComputedStyle(el).position;
+    const position = atTop ? 'fixed' : /** @type {Window} */ (doc.defaultView).getComputedStyle(el).position;
     if (/^(fixed|sticky)$/.test(position)) break;
     parent = position === 'absolute' ? el.offsetParent : parentNode(el);
   }
@@ -252,8 +252,8 @@ export class FragmentedView {
     this.render = sliceRenderer(props.words);
     /** @type {EditorState} */
     this.state = withFragments(props.state);
-    /** The root element holding the fragments; it is the editing host. */
-    this.dom = document.createElement('div');
+    /** The root element holding the fragments; it is the editing host, created in the place's document. Every node and range after it is made in `this.dom.ownerDocument`, the document it lives in once placed. */
+    this.dom = (place && typeof place !== 'function' ? place.ownerDocument : document).createElement('div');
     this.dom.className = 'fragview';
     // The text mechanics prosemirror-view's own stylesheet sets, so a typed space shows and lines wrap as they do there.
     Object.assign(this.dom.style, { whiteSpace: 'break-spaces', overflowWrap: 'break-word', fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0' });
@@ -495,7 +495,7 @@ export class FragmentedView {
   placeholder(entry, last) {
     let el = this.placeholders.get(entry.key);
     if (!el) {
-      el = document.createElement('div');
+      el = this.dom.ownerDocument.createElement('div');
       el.className = 'fragview-placeholder';
       el.contentEditable = 'false';
       this.placeholders.set(entry.key, el);
@@ -507,7 +507,7 @@ export class FragmentedView {
       const mean = spans.length ? spans.reduce((a, b) => a + b, 0) / spans.length : 0;
       if (mean > 0) boxes = Math.max(1, Math.ceil((this.state.doc.content.size - entry.from) / mean));
     }
-    const gap = parseFloat(getComputedStyle(this.dom).rowGap) || 0;
+    const gap = parseFloat(/** @type {Window} */ (this.dom.ownerDocument.defaultView).getComputedStyle(this.dom).rowGap) || 0;
     el.style.height = boxes * this.boxHeight + (boxes - 1) * gap + 'px';
     return el;
   }
@@ -763,7 +763,7 @@ export class FragmentedView {
       return { left: rect.left, right: rect.left, top: y, bottom: y, estimate: true };
     }
     const { node, offset } = this.domAtPos(pos);
-    const range = document.createRange();
+    const range = this.dom.ownerDocument.createRange();
     if (node.nodeType === 3) {
       const length = /** @type {Text} */ (node).length;
       if (offset < length && (side >= 0 || offset === 0)) {
@@ -832,7 +832,7 @@ export class FragmentedView {
       const block = $pos.depth ? this.nodeDOM($pos.before()) : null;
       if (!block) return true;
       const coords = this.coordsAtPos($pos.pos);
-      const range = document.createRange();
+      const range = this.dom.ownerDocument.createRange();
       range.selectNodeContents(block);
       for (const box of range.getClientRects()) {
         if (box.bottom <= box.top + 1) continue;
@@ -1202,8 +1202,8 @@ export class FragmentedView {
       else if (canSplit(tr.doc, $from.pos)) tr.split($from.pos);
       this.dispatch(tr.scrollIntoView());
     } else if (type === 'insertLineBreak') {
-      const holder = document.createElement('div');
-      holder.appendChild(document.createElement('br'));
+      const holder = this.dom.ownerDocument.createElement('div');
+      holder.appendChild(this.dom.ownerDocument.createElement('br'));
       const slice = PMDOMParser.fromSchema(state.schema).parseSlice(holder, { context: state.selection.$from });
       if (slice.size) this.dispatch(state.tr.replaceSelection(slice).scrollIntoView());
     } else if (DELETES.test(type)) {
@@ -1281,10 +1281,10 @@ export class FragmentedView {
       if (textParser) slice = textParser(text, $context, false, this);
       else {
         const serializer = DOMSerializer.fromSchema(state.schema);
-        const holder = document.createElement('div');
+        const holder = this.dom.ownerDocument.createElement('div');
         for (const line of text.split(/(?:\r\n?|\n)+/)) {
-          const p = holder.appendChild(document.createElement('p'));
-          if (line) p.appendChild(serializer.serializeNode(state.schema.text(line, $context.marks())));
+          const p = holder.appendChild(this.dom.ownerDocument.createElement('p'));
+          if (line) p.appendChild(serializer.serializeNode(state.schema.text(line, $context.marks()), { document: this.dom.ownerDocument }));
         }
         slice = parser.parseSlice(holder, { context: $context, preserveWhitespace: true });
       }

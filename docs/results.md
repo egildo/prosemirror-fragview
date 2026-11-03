@@ -546,3 +546,19 @@ Codeberg issue 1, *Paste ignores data-pm-slice: edge whitespace and open depths 
 ## What is not done
 
 `transformPastedHTML`, `transformPastedText`, `transformPasted`, the `inCode` path and WebKit's replaced spaces are still not read, and HTML from outside ProseMirror is not normalized against the context.
+
+# The view in a document of its own: the results
+
+Codeberg issue 2, *Use the view's ownerDocument instead of the global document*. The view and `OverflowBox` created nodes and ranges with the global `document`, and measured with the global `getComputedStyle`, so a view mounted in an iframe made its nodes in the main document and had them adopted.
+
+## The fix
+
+The view's root is created in the place's document when the place is an element (the global one when the place is a function, as `EditorView` does), and every node, range and computed style after it comes from `this.dom.ownerDocument` and its window: the placeholders, the geometry and `endOfTextblock` ranges, the parse holders for a line break and pasted plain text (whose serializer is now given the document too), the detached document of the clipboard, and the scroll code's computed position. `OverflowBox` takes a `document` option for its two elements, and renders and measures in the document its content lives in.
+
+## The numbers
+
+`test/owner-document.test.js` mounts the view in an iframe with boxes made in the frame's document, counts every call to the main document's node and range factories while the view fills, builds placeholders, answers geometry and takes a line break, a paste and a copy, and asserts none. On main it fails (the boxes ignore the option); with the fix `npm test` 63 of 63, and every parity script exits 0 (copy 6 of 6 and 7 of 7 under boxes, atoms 11 of 11 in both layouts, compose 11 of 11, pointer 9 of 9, scroll 8 of 8).
+
+## What is not done
+
+`requestAnimationFrame`, `IntersectionObserver` and `ResizeObserver` are still the module's window's; they work across a same-origin frame, and nothing measured asks for the frame's. The global `DOMParser` that parses pasted HTML is kept: its document is inert by design. Cicero registering `<beltype-page>` in the main window's registry is prosemirror-beltype's to decide.

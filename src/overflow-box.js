@@ -29,8 +29,9 @@ export class OverflowBox {
    * @param {number | string} [options.width] The box's width, as a CSS length or in pixels; the place's width when omitted.
    * @param {number} [options.height] The height of the box's content in pixels; `Infinity`, the default, never cuts.
    * @param {string} [options.className] A class for the box's element, for the author's styles.
+   * @param {Document} [options.document] The document to create the box in, the one its view lives in; the global one when omitted. Once placed, the box renders and measures in the document it lives in.
    */
-  constructor({ width, height = Infinity, className } = {}) {
+  constructor({ width, height = Infinity, className, document = globalThis.document } = {}) {
     this.height = height;
     /** @type {HTMLElement} */
     this.dom = document.createElement('div');
@@ -65,7 +66,7 @@ export class OverflowBox {
   async fill(doc, from, render) {
     this.to = null;
     if (this.height === Infinity) {
-      this.show(render(doc, from, null));
+      this.show(render(doc, from, null, this.content.ownerDocument));
       return { to: null };
     }
     const size = doc.content.size;
@@ -73,7 +74,7 @@ export class OverflowBox {
     let cut;
     for (;;) {
       const end = from + span >= size ? null : from + span;
-      this.show(render(doc, from, end));
+      this.show(render(doc, from, end, this.content.ownerDocument));
       cut = this.cut();
       if (end == null || (cut && this.content.getBoundingClientRect().bottom >= cut.bottom + 2 * cut.height)) break;
       span *= 2;
@@ -81,7 +82,7 @@ export class OverflowBox {
     const to = cut ? cut.pos : null;
     if (to != null) {
       this.span = to - from;
-      this.show(render(doc, from, openedAt(doc, to)));
+      this.show(render(doc, from, openedAt(doc, to), this.content.ownerDocument));
     }
     this.to = to;
     this.filledHeight = this.content.getBoundingClientRect().height;
@@ -101,8 +102,9 @@ export class OverflowBox {
    */
   cut() {
     const foot = this.content.getBoundingClientRect().top + this.height;
-    const walker = document.createTreeWalker(this.content, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-    const range = document.createRange();
+    const doc = this.content.ownerDocument;
+    const walker = doc.createTreeWalker(this.content, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+    const range = doc.createRange();
     /** The bottom of the first line's first box: a line is a candidate only when it starts at or below it. @type {number | null} */
     let first = null;
     const passes = (/** @type {DOMRect} */ r) => {
