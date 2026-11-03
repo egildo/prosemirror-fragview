@@ -530,3 +530,19 @@ The studio's `scripts/facsimile-check.mjs`: 31 of 33 on main, 33 of 33 with the 
 - **A stray caret.** After a drop the browser's caret stays at the start of the first page, blinking in `caret-color`, until the next draw; the view does not move it, since drawing again is dropped again. Off screen when the facsimile is far below, visible when it is near the top (reasoned, not seen).
 - **A key the view does not handle, with a dropped node selection** (End, Home, Shift+Arrow, Page keys) moves the browser's own caret from the start of the document and nothing is read of it until the next draw or a press: the node selection stands. With the range held (a facsimile in a figure with a caption, or a rule) the browser moves from the range and the move is read, as before.
 - **Not exercised:** WebKit and Firefox, which may hold the range (`EditorView` has `brokenSelectBetweenUneditable` for old WebKit and Chrome < 63, which this view does not port), touch (`touchstart` is counted and clears `dropped`, no touch device was driven), and a facsimile whose page is built after the key.
+
+# The view in a document of its own: the results
+
+Codeberg issue 2, *Use the view's ownerDocument instead of the global document*. The view and `OverflowBox` created nodes and ranges with the global `document`, and measured with the global `getComputedStyle`, so a view mounted in an iframe made its nodes in the main document and had them adopted.
+
+## The fix
+
+The view's root is created in the place's document when the place is an element (the global one when the place is a function, as `EditorView` does), and every node, range and computed style after it comes from `this.dom.ownerDocument` and its window: the placeholders, the geometry and `endOfTextblock` ranges, the parse holders for a line break and pasted plain text (whose serializer is now given the document too), the detached document of the clipboard, and the scroll code's computed position. `OverflowBox` takes a `document` option for its two elements, and renders and measures in the document its content lives in.
+
+## The numbers
+
+`test/owner-document.test.js` mounts the view in an iframe with boxes made in the frame's document, counts every call to the main document's node and range factories while the view fills, builds placeholders, answers geometry and takes a line break, a paste and a copy, and asserts none. On main it fails (the boxes ignore the option); with the fix `npm test` 63 of 63, and every parity script exits 0 (copy 6 of 6 and 7 of 7 under boxes, atoms 11 of 11 in both layouts, compose 11 of 11, pointer 9 of 9, scroll 8 of 8).
+
+## What is not done
+
+`requestAnimationFrame`, `IntersectionObserver` and `ResizeObserver` are still the module's window's; they work across a same-origin frame, and nothing measured asks for the frame's. The global `DOMParser` that parses pasted HTML is kept: its document is inert by design. Cicero registering `<beltype-page>` in the main window's registry is prosemirror-beltype's to decide.
