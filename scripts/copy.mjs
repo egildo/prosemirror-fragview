@@ -1,4 +1,4 @@
-// usage: node scripts/copy.mjs [--headed] [--boxes] — what Copy and Cut write to the clipboard, on both sides of the harness. Each act selects the same range on the EditorView (left) and the FragmentedView (right), sends each root a `copy` event carrying a DataTransfer, and compares what they wrote: the HTML (with its `data-pm-slice`, the slice's open depths and context, which `prosemirror-view`'s clipboard writes so that another ProseMirror editor fits the slice back where it came from) and the plain text. The acts: inside one paragraph; across two paragraphs (the slice opens in both); from a nested list item to the paragraph after the list (a context of three levels, which `prosemirror-view` writes into `data-pm-slice` and takes off the markup); across a cut of the chain (with --boxes); with the props `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` set on both; and a Cut, whose document must come out equal. Exits 1 when an act differs.
+// usage: node scripts/copy.mjs [--headed] [--boxes] — what Copy and Cut write to the clipboard, on both sides of the harness. Each act selects the same range on the EditorView (left) and the FragmentedView (right), sends each root a `copy` event carrying a DataTransfer, and compares what they wrote: the HTML (with its `data-pm-slice`, the slice's open depths and context, which `prosemirror-view`'s clipboard writes so that another ProseMirror editor fits the slice back where it came from) and the plain text. The acts: inside one paragraph; across two paragraphs (the slice opens in both); from a nested list item to the paragraph after the list (a context of three levels, which `prosemirror-view` writes into `data-pm-slice` and takes off the markup); across a cut of the chain (with --boxes); with the props `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` set on both; and a Cut, whose document must come out equal. The paste acts copy a range on each side and paste that clipboard elsewhere on the same side, and compare the documents: the slice comes back with its edge whitespace and open depths, as `data-pm-slice` recorded them. Exits 1 when an act differs.
 import { open } from './browser.mjs';
 
 const boxes = process.argv.includes('--boxes');
@@ -46,6 +46,32 @@ await act('inside a nested list item', () => find('A fragment holds'), () => fin
 if (boxes) await act('across a cut of the chain', () => page.evaluate(() => window.harness.chain()[0].to - 12), () => page.evaluate(() => window.harness.chain()[0].to + 12));
 await act('across two paragraphs, with transformCopied, clipboardSerializer and clipboardTextSerializer', () => find('without effort'), () => find('keeps the document'), { withProps: true });
 await act('Cut across two paragraphs', () => find('without effort'), () => find('keeps the document'), { type: 'cut' });
+
+/** Copy [a, b] on a side, then paste that clipboard at `at`; the document after. */
+const roundTrip = (side, a, b, at) => page.evaluate(([side, a, b, at]) => {
+  const view = window.harness.view(side), data = new DataTransfer();
+  window.harness.select(side, a, b);
+  view.dom.dispatchEvent(new ClipboardEvent('copy', { clipboardData: data, bubbles: true, cancelable: true }));
+  window.harness.select(side, at, at);
+  view.dom.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  return { doc: JSON.stringify(view.state.doc.toJSON()), size: view.state.doc.content.size };
+}, [side, a, b, at]);
+async function paste(name, a, b, at) {
+  await page.evaluate(() => window.harness.reset());
+  await settled();
+  const [from, to, target] = [await a(), await b(), await at()];
+  const before = await page.evaluate(() => window.harness.right.state.doc.content.size);
+  const left = await roundTrip('left', from, to, target), right = await roundTrip('right', from, to, target);
+  const ok = left.doc === right.doc && right.size > before;
+  if (!ok) failed = true;
+  rows.push([`Paste: ${name}`, `${from} → ${to} at ${target}`, ok ? 'yes' : '**no**', `${right.size - before} positions inserted (EditorView ${left.size - before})`, ok ? '' : `left ${left.doc.slice(0, 160)} / right ${right.doc.slice(0, 160)}`]);
+}
+
+await paste('a word and its trailing space, before another word', () => find('answer is a'), () => find('answer is a').then((p) => p + 7), () => find('keeps the document'));
+await paste('across two paragraphs, inside a paragraph', () => find('without effort'), () => find('keeps the document'), () => find('A fragment holds'));
+await paste('from a nested list item to the paragraph after the list, inside a paragraph', () => find('Its numbering'), () => find('The default fragmentainer'), () => find('without effort'));
+
+await paste('inside a nested list item (a context of four levels), inside a paragraph', () => find('A fragment holds'), () => find('A fragment holds').then((p) => p + 9), () => find('keeps the document'));
 
 console.log('| Act | Range | Clipboard equal to EditorView\'s | Written | Notes |\n| :-- | :-- | :-- | :-- | :-- |');
 for (const r of rows) console.log(`| ${r.join(' | ').replace(/\n/g, ' ')} |`);

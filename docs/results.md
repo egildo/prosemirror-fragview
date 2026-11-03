@@ -530,3 +530,19 @@ The studio's `scripts/facsimile-check.mjs`: 31 of 33 on main, 33 of 33 with the 
 - **A stray caret.** After a drop the browser's caret stays at the start of the first page, blinking in `caret-color`, until the next draw; the view does not move it, since drawing again is dropped again. Off screen when the facsimile is far below, visible when it is near the top (reasoned, not seen).
 - **A key the view does not handle, with a dropped node selection** (End, Home, Shift+Arrow, Page keys) moves the browser's own caret from the start of the document and nothing is read of it until the next draw or a press: the node selection stands. With the range held (a facsimile in a figure with a caption, or a rule) the browser moves from the range and the move is read, as before.
 - **Not exercised:** WebKit and Firefox, which may hold the range (`EditorView` has `brokenSelectBetweenUneditable` for old WebKit and Chrome < 63, which this view does not port), touch (`touchstart` is counted and clears `dropped`, no touch device was driven), and a facsimile whose page is built after the key.
+
+# Paste reads data-pm-slice: the results
+
+Codeberg issue 1, *Paste ignores data-pm-slice: edge whitespace and open depths are lost*. `onPaste` parsed the clipboard's HTML with the context and nothing else, so the `data-pm-slice` that `onCopy` writes was ignored and the parser collapsed edge whitespace.
+
+## The fix
+
+`onPaste` reads the attribute as `prosemirror-view`'s `parseFromClipboard` does: when present, it steps into the wrappers the attribute counts (`-N`), parses with `preserveWhitespace: true`, and restores the open depths and the context through `closeSlice` and `addContext`, ported from `prosemirror-view` 1.42.6. HTML without the attribute is opened as far as it goes, as before; `prosemirror-view`'s `normalizeSiblings` and its closing at isolating nodes are not ported.
+
+## The numbers
+
+`scripts/copy.mjs` gains four paste acts: a range is copied on each side and pasted elsewhere on the same side, and the documents must come out equal. On main, two fail: a word and its trailing space inserts 6 positions instead of 7, and a range across two paragraphs 180 instead of 181. With the fix, 10 of 10 acts, 11 of 11 under boxes; `npm test` 61 of 61.
+
+## What is not done
+
+`transformPastedHTML`, `transformPastedText`, `transformPasted`, the `inCode` path and WebKit's replaced spaces are still not read, and HTML from outside ProseMirror is not normalized against the context.
