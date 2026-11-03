@@ -10,7 +10,7 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`; `paste` does not read that attribute yet. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to.
  *
  * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
@@ -26,7 +26,7 @@ Decorations. Inline decorations with a class are painted with the CSS Custom Hig
  */
 
 import { AllSelection, NodeSelection, Selection, TextSelection } from 'prosemirror-state';
-import { DOMParser as PMDOMParser, DOMSerializer, Slice } from 'prosemirror-model';
+import { DOMParser as PMDOMParser, DOMSerializer, Fragment, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
 import { sliceRenderer, openedAt } from './slice-renderer.js';
@@ -125,6 +125,70 @@ function serializeForClipboard(view, slice) {
   if (first && first.nodeType === 1) /** @type {Element} */ (first).setAttribute('data-pm-slice', `${openStart} ${openEnd}${wrappers ? ` -${wrappers}` : ''} ${JSON.stringify(context)}`);
   const text = view.someProp('clipboardTextSerializer', (f) => f(slice, view)) || slice.content.textBetween(0, slice.content.size, '\n\n', '\ufffc');
   return { html: wrap.innerHTML, text };
+}
+
+/**
+ * Close the slice's start or end (`side` -1 or 1) from depth `from` down to `to`, filling each closed node's content as its type requires: `prosemirror-view`'s `closeRange`.
+ * @param {Fragment} fragment
+ * @param {number} side
+ * @param {number} from
+ * @param {number} to
+ * @param {number} depth
+ * @param {number} openEnd
+ * @returns {Fragment}
+ */
+function closeRange(fragment, side, from, to, depth, openEnd) {
+  const node = /** @type {PMNode} */ (side < 0 ? fragment.firstChild : fragment.lastChild);
+  let inner = node.content;
+  if (fragment.childCount > 1) openEnd = 0;
+  if (depth < to - 1) inner = closeRange(inner, side, from, to, depth + 1, openEnd);
+  if (depth >= from) {
+    inner = side < 0
+      ? /** @type {Fragment} */ (node.contentMatchAt(0).fillBefore(inner, openEnd <= depth)).append(inner)
+      : inner.append(/** @type {Fragment} */ (node.contentMatchAt(node.childCount).fillBefore(Fragment.empty, true)));
+  }
+  return fragment.replaceChild(side < 0 ? 0 : fragment.childCount - 1, node.copy(inner));
+}
+
+/**
+ * The slice with its open depths brought down to the ones `data-pm-slice` recorded: `prosemirror-view`'s `closeSlice`.
+ * @param {Slice} slice
+ * @param {number} openStart
+ * @param {number} openEnd
+ */
+function closeSlice(slice, openStart, openEnd) {
+  if (openStart < slice.openStart) slice = new Slice(closeRange(slice.content, -1, openStart, slice.openStart, 0, slice.openEnd), openStart, slice.openEnd);
+  if (openEnd < slice.openEnd) slice = new Slice(closeRange(slice.content, 1, openEnd, slice.openEnd, 0, 0), slice.openStart, openEnd);
+  return slice;
+}
+
+/**
+ * The slice wrapped again in the context nodes `data-pm-slice` listed, innermost last, each one opening the slice one level more: `prosemirror-view`'s `addContext`. A type the schema lacks, or one with required attributes, stops the wrapping.
+ * @param {Slice} slice
+ * @param {string} context The JSON array of node names and attributes.
+ */
+function addContext(slice, context) {
+  if (!slice.size) return slice;
+  const schema = /** @type {PMNode} */ (slice.content.firstChild).type.schema;
+  let array;
+  try {
+    array = JSON.parse(context);
+  } catch {
+    return slice;
+  }
+  let { content, openStart, openEnd } = slice;
+  for (let i = array.length - 2; i >= 0; i -= 2) {
+    const type = schema.nodes[array[i]];
+    if (!type || type.hasRequiredAttrs()) break;
+    try {
+      content = Fragment.from(type.create(array[i + 1], content));
+    } catch {
+      break;
+    }
+    openStart++;
+    openEnd++;
+  }
+  return new Slice(content, openStart, openEnd);
 }
 
 /**
@@ -1203,11 +1267,15 @@ export class FragmentedView {
     const $context = state.selection.$from;
     const html = event.clipboardData.getData('text/html'), text = event.clipboardData.getData('text/plain');
     const parser = this.someProp('clipboardParser') || this.someProp('domParser') || PMDOMParser.fromSchema(state.schema);
-    let slice;
+    let slice, sliceData;
     if (html) {
       // An inert document: nothing in the pasted markup runs.
-      const body = new globalThis.DOMParser().parseFromString(html, 'text/html').body;
-      slice = parser.parseSlice(body, { context: $context });
+      let dom = new globalThis.DOMParser().parseFromString(html, 'text/html').body;
+      const contextNode = dom.querySelector('[data-pm-slice]');
+      sliceData = contextNode && /^(\d+) (\d+)(?: -(\d+))? (.*)/.exec(contextNode.getAttribute('data-pm-slice') || '');
+      if (sliceData?.[3]) for (let i = +sliceData[3]; i > 0 && dom.firstElementChild; i--) dom = /** @type {HTMLElement} */ (dom.firstElementChild);
+      slice = parser.parseSlice(dom, { context: $context, preserveWhitespace: !!sliceData });
+      if (sliceData) slice = addContext(closeSlice(slice, +sliceData[1], +sliceData[2]), sliceData[4]);
     } else if (text) {
       const textParser = this.someProp('clipboardTextParser');
       if (textParser) slice = textParser(text, $context, false, this);
@@ -1221,7 +1289,8 @@ export class FragmentedView {
         slice = parser.parseSlice(holder, { context: $context, preserveWhitespace: true });
       }
     } else return;
-    slice = Slice.maxOpen(slice.content, true);
+    // ponytail: HTML from outside ProseMirror is opened as far as it goes, without prosemirror-view's normalizeSiblings and its closing at isolating nodes.
+    if (!sliceData) slice = Slice.maxOpen(slice.content, true);
     if (this.someProp('handlePaste', (f) => f(this, event, slice))) return;
     const single = slice.openStart === 0 && slice.openEnd === 0 && slice.content.childCount === 1 ? slice.content.firstChild : null;
     const tr = single ? state.tr.replaceSelectionWith(single) : state.tr.replaceSelection(slice);
