@@ -3,6 +3,19 @@
   "version": "0.1.0",
   "description": "A fragmented view for ProseMirror: the editor state rendered into a chain of fragmentainers, each a component that pulls content from a position and gives back the position where it had to stop.",
   "type": "module",
+  "license": "MIT",
+  "author": "Egildo Tagliareni",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/egildo/prosemirror-fragview.git"
+  },
+  "homepage": "https://codeberg.org/egildo/prosemirror-fragview",
+  "bugs": {
+    "url": "https://codeberg.org/egildo/prosemirror-fragview/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "src/index.js",
   "exports": {
     ".": "./src/index.js"
@@ -30,12 +43,6 @@
     "prosemirror-state": "^1.4.0",
     "prosemirror-transform": "^1.12.0"
   },
-  "repository": {
-    "type": "git",
-    "url": "https://codeberg.org/egildo/prosemirror-fragview.git"
-  },
-  "author": "Egildo Tagliareni",
-  "private": true,
   "devDependencies": {
     "beltype-studio-experiment": "file:../../../../Users/egildo/Privata/dev/beltype-studio-experiment",
     "playwright": "1.63.0",
