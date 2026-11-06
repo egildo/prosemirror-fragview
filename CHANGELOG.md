@@ -11,6 +11,7 @@ Fixes from the integration review of 2026-11-04.
 - A text node changed, added or removed under a fragment outside a composition now dirties that fragment, which is drawn again from the model. Three such redraws per entry and per document, then one warning.
 - The root carries `translate="no"` and the opt-out attributes of Grammarly and LanguageTool. A host removes one from `view.dom` to allow that writer.
 - A `compositionend` taken by a handler still redraws its fragment from the model.
+- A refill that keeps its `to` but changes its hint now fills the next fragment, which was cut under the old hint. Hints are compared by their JSON.
 - A clean clone installs and tests: the private studio is no longer a dev dependency. `BELTYPE_STUDIO` names its checkout for the harness's `schema=generic` mode.
 - `LICENSE` carries the notice of `prosemirror-view`, for the code ported from it.
 

@@ -4,7 +4,7 @@
  * @remarks
  * Constructed as `EditorView` is, with two more props: `containers`, the `ContainerFactory` the view asks for each fragmentainer, and `words`, the words registry of the slice renderer it hands every fill (`sliceRenderer(words)`, built once; this package's own words when omitted). The plugin and the containers never see the registry: a container receives the renderer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
  *
- * Rendering. After every state the view fills the first dirty entry, and only that one: `fill` writes its DOM before its first wait, so the fragment is rendered inside `updateState`, and when its promise settles the view dispatches the `refilled` transaction. That transaction is the ripple: an entry whose `to` lands where the mapping put it leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range.
+ * Rendering. After every state the view fills the first dirty entry, and only that one: `fill` writes its DOM before its first wait, so the fragment is rendered inside `updateState`, and when its promise settles the view dispatches the `refilled` transaction. That transaction is the ripple: an entry whose `to` and hint land where they were leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it; one whose hint alone moved marks the next entry dirty, since it was cut under the old hint. A hint is compared by its JSON, so a fragmentainer keeps positions out of it or relative, or a shift alone counts as a change. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range.
  *
  * Invalidation. `invalidate()` says the conditions every fill was made under have changed (a page size, a stylesheet, a face that arrived late): every built container is released and its element removed, every placeholder and hint dropped, and every entry marked dirty by a `dirtied` transaction with no key, so the next update asks the factory for new containers and refills the chain from the first. The dirtiness goes through the plugin as every other chain change does, outside the history like the refills; the containers are the view's and are released on the view alone. The entries keep their keys and their ranges, which the ripple corrects. `setProps` invalidates when it is given a new `containers` or `words`. `redraw(from, to)` is the narrow form, for a rendering that reads something outside the node: only the entries that show the range are dirtied, in the containers they have.
  *
@@ -652,6 +652,7 @@ export class FragmentedView {
       if (at < 0 || entries[at].from !== entry.from) return;
       // Asked again while it flew, with the document the same: this answer may be older than what was asked.
       if (entries[at].asked !== asked) { this.refresh(); return; }
+      const hintMoved = JSON.stringify(this.hints.get(entry.key)) !== JSON.stringify(next);
       this.hints.set(entry.key, next);
       this.boxHeight = container.dom.offsetHeight;
       // A container may write its DOM after the wait (a page the engine cuts), so the answer of the fragment that holds the head draws the browser's selection again.
@@ -659,6 +660,9 @@ export class FragmentedView {
       let tr = null;
       if (entries[at].dirty || entries[at].to !== to || entries[at].reach !== reach) tr = refilled(this.state.tr, entry.key, to, reach);
       if (to != null && at === entries.length - 1) tr = appended(tr ?? this.state.tr, to);
+      // The next fragment was cut under the hint this answer replaces, and an equal `to` would leave it clean.
+      const after = entries[at + 1];
+      if (hintMoved && after && !after.dirty && after.from === to) tr = dirtied(tr ?? this.state.tr, after.key);
       if (tr) this.dispatch(tr);
       else { this.refresh(); this.paint(); } // a clean fragment built again, with nothing to record
     }, (error) => {

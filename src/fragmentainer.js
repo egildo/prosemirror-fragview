@@ -17,6 +17,9 @@
  * @typedef {object} ContainerHint
  * @property {string} [name] The name of the container the next fragment wants, as CSS's named pages name a page.
  * @property {boolean} [blank] The next container is to be left empty, as a blank page after `break-before: right`.
+ *
+ * @remarks
+ * A hint is a plain value, compared by its JSON: one that changes under an equal `to` fills the next fragment again. A position in it is held relative to the cut, since an absolute one changes whenever an edit before it shifts the document.
  */
 
 /**
