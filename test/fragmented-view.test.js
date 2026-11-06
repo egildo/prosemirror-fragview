@@ -25,3 +25,39 @@ test('setProps with a new factory invalidates', () => {
   assert.deepEqual(r.setProps.cuts, r.setProps.fresh);
   for (const box of r.setProps.boxes) assert.deepEqual(box, { size: [250, 150], fresh: true });
 });
+
+test('in read-only mode no key reaches the keymaps', () => {
+  assert.deepEqual(r.readOnly, { readOnly: true, editable: false });
+});
+
+test('a redraw during a fill is not lost: the page is filled again after the fill in flight, once, and ends clean', () => {
+  assert.equal(r.overFill.dirty, false);
+  assert.equal(r.overFill.fillsAfterFirstAsk, 1);
+});
+
+test('a reach answered by a fill reaches the entry, and a change past the first word and inside it refills the page', () => {
+  assert.equal(r.reach.reach, 40);
+  assert.equal(r.reach.dirtyPastTheWord, true);
+  assert.ok(r.reach.refilled >= 1);
+});
+
+test('the view opts out of the writers that would edit around the model', () => {
+  assert.deepEqual(r.foreign.optOut, ['no', 'false', 'false', 'false', 'false']);
+});
+
+test('the view takes none of its own fills for a foreign write', () => {
+  assert.equal(r.foreign.ownFills, 1);
+  assert.equal(r.foreign.idleFills, 0);
+});
+
+test('a foreign write at the same height is drawn over from the model, and the model is untouched', () => {
+  assert.equal(r.foreign.execWrote, true, 'execCommand reached the DOM');
+  const model = r.foreign.modelText;
+  assert.equal(model, 'Xalpha beta gammadelta');
+  for (const shown of [r.foreign.inPlace, r.foreign.execCommand, r.foreign.added, r.foreign.removed]) assert.equal(shown.replace(/\s+/g, ''), model.replace(/\s+/g, ''));
+});
+
+test('a writer that answers every redraw stops being answered, with one warning', () => {
+  assert.ok(r.foreign.loop.fills <= 4, `${r.foreign.loop.fills} fills`);
+  assert.equal(r.foreign.loop.warnings, 1);
+});

@@ -116,3 +116,70 @@ test('dirtied with no key marks every entry dirty, outside the history', () => {
   const next = state.apply(tr);
   assert.deepEqual(entries(next).map((e) => [e.key, e.from, e.to, e.dirty]), entries(state).map((e) => [e.key, e.from, e.to, true]));
 });
+
+/** A state whose chain is three clean entries cut at tags `<one>` and `<two>`. */
+function threeEntries(d) {
+  let state = EditorState.create({ doc: d, plugins: [fragmentsPlugin()] });
+  state = state.apply(appended(refilled(state.tr, 0, d.tag.one), d.tag.one));
+  state = state.apply(appended(refilled(state.tr, 1, d.tag.two), d.tag.two));
+  return state.apply(refilled(state.tr, 2, null));
+}
+
+test('a markup change on a container of three fragments dirties the fragment in its middle, whose range no token of the step meets', () => {
+  const d = doc(ul(li(p('one')), li(p('<one>two')), li(p('three')), li(p('<two>four'))), p('five'));
+  const state = threeEntries(d);
+  const next = state.apply(state.tr.setNodeMarkup(0, schema.nodes.ordered_list));
+  assert.deepEqual(entries(next).map((e) => e.dirty), [true, true, true]);
+});
+
+test('a wrap over the middle of the chain dirties what it wraps and leaves the rest clean', () => {
+  const d = doc(p('zero'), p('<one>one'), p('two'), p('<two>three'), p('four'));
+  const state = threeEntries(d);
+  const from = d.resolve(d.tag.one).before(), to = d.resolve(d.tag.two).before();
+  const next = state.apply(state.tr.wrap(state.doc.resolve(from + 1).blockRange(state.doc.resolve(to - 1)), [{ type: schema.nodes.blockquote }]));
+  assert.deepEqual(entries(next).map((e) => e.dirty), [true, true, false]);
+});
+
+test('a fill that answers how far its decision read dirties the entry for a change anywhere up to there, mapped through the steps', () => {
+  const d = doc(p('one two <cut>three<a> four <b>five<c> six <d>seven'));
+  let state = EditorState.create({ doc: d, plugins: [fragmentsPlugin()] });
+  state = state.apply(appended(refilled(state.tr, 0, d.tag.cut, d.tag.c), d.tag.cut));
+  state = state.apply(refilled(state.tr, 1, null));
+  assert.deepEqual(entries(state.apply(state.tr.insertText('x', d.tag.b))).map((e) => e.dirty), [true, true]);
+  assert.deepEqual(entries(state.apply(state.tr.insertText('x', d.tag.d))).map((e) => e.dirty), [false, true]);
+  const moved = state.apply(state.tr.insertText('XY', 1));
+  assert.equal(entries(moved)[0].reach, d.tag.c + 2);
+});
+
+test('a reach of null reads to the end of the document, and one short of the first word still counts that word', () => {
+  const d = doc(p('one <cut>three<a> four <b>five'));
+  const answered = (reach) => {
+    let state = EditorState.create({ doc: d, plugins: [fragmentsPlugin()] });
+    state = state.apply(appended(refilled(state.tr, 0, d.tag.cut, reach), d.tag.cut));
+    return state.apply(refilled(state.tr, 1, null));
+  };
+  const open = answered(null);
+  assert.deepEqual(entries(open.apply(open.tr.insertText('x', d.tag.b))).map((e) => e.dirty), [true, true]);
+  const short = answered(d.tag.cut);
+  assert.deepEqual(entries(short.apply(short.tr.insertText('x', d.tag.a))).map((e) => e.dirty), [true, true]);
+});
+
+test('a later fill replaces the reach, and one that answers none goes back to the first word', () => {
+  const d = doc(p('one <cut>three<a> four <b>five'));
+  let state = EditorState.create({ doc: d, plugins: [fragmentsPlugin()] });
+  state = state.apply(appended(refilled(state.tr, 0, d.tag.cut, d.tag.b), d.tag.cut));
+  state = state.apply(refilled(state.tr, 0, d.tag.cut));
+  assert.deepEqual(entries(state)[0], { key: 0, from: 0, to: d.tag.cut, dirty: false });
+});
+
+test('dirtied counts its asks on the entries it names, dirty or not, and a refill keeps the count', () => {
+  const state = twoEntries(doc(p('one'), p('<cut>two')));
+  const once = state.apply(dirtied(state.tr, 1));
+  const twice = once.apply(dirtied(once.tr, 1));
+  assert.deepEqual(entries(twice).map((e) => e.asked), [undefined, 2]);
+  const filled = twice.apply(refilled(twice.tr, 1, null));
+  assert.equal(entries(filled)[1].asked, 2);
+  assert.equal(entries(filled)[1].dirty, false);
+  const typed = filled.apply(filled.tr.insertText('x', 2));
+  assert.equal(entries(typed)[1].asked, 2);
+});

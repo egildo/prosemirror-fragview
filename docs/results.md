@@ -597,3 +597,37 @@ Found by the same test: a `DecorationSet` returned by a `decorations` prop was r
 ## The numbers
 
 `test/decorations.test.js` fills twelve paragraphs into 300 × 200 boxes that wait 30 ms before filling, with an inline decoration on the second box from the first state. On main the class has no range once the chain has settled; with only the first fix it has two, the same text twice; with both, one range over the decorated text. `npm test` 68 of 68, every parity script exits 0, with and without boxes.
+
+# The integration review's fixes
+
+The integration review of 2026-11-04 named five faults in this package that give wrong output with no sign of it. All five were read again at the current head and written as tests first. Nine of the new tests failed before the fixes. The read-only test was seen failing with its one-line fix taken out.
+
+## The fixes
+
+**The middle pages under a markup change.** A `ReplaceAroundStep` maps only the tokens it replaces. A `setNodeMarkup` on a list of three pages left the middle page clean, drawn inside the old markup. The step now touches its whole range.
+
+**Keys on a read-only view.** `onKeyDown` asks the keymaps unless the view is not editable, as `prosemirror-view`'s `editHandlers` do.
+
+**An ask during a fill.** A `dirtied` with the document unchanged was swallowed: the view saw the fill in flight as the same fill, and its answer then cleared `dirty`. The entry now counts its asks in `asked`. A fill whose count has moved drops its answer and the view fills again. It waits for the fill in flight rather than starting a second one, because a page's fills share a measure container.
+
+**A decision that reads past the first word.** A fill may answer `reach`, the last position its decision read, kept on the entry and mapped as `to` is. It never counts for less than the first word. `OverflowBox` answers none, since a greedy line break reads only that word. This closes the fault for pages only once `CiceroPage` answers it, which it does not yet.
+
+**Foreign writes.** A `MutationObserver` on the root takes a text node changed, added or removed outside a composition as a write the model does not hold, and dirties that fragment. Nothing is read back. Whole elements are not taken for one, so a fill's own `replaceChildren` and an extension's empty widget pass. A writer still at it after three redraws per entry and per document is left on screen, with one warning. The root carries the opt-outs, so most writers never start.
+
+## The numbers
+
+`npm test` 81 of 81 (68 before). `chain`, `acts`, `atoms` (11 of 11), `copy` (10 of 10), `compose` (11 of 11), `pointer` (9 of 9), `scroll` (8 of 8), `fragments`, `parity` and `lossless` run without a failure.
+
+`CiceroPage` on this branch, through a temporary instrumented copy in prosemirror-beltype's `node_modules`, `scripts/specimen.mjs` with six edits on BelType's specimen, four runs each against the pinned `a4ac0a5`:
+
+| | Pinned | This branch |
+| :--- | :--- | :--- |
+| Edits agreeing with a fresh fill, 6 per run | 22 of 24 | 24 of 24 |
+| Foreign writes seen | not instrumented, the observer is absent there | 0 |
+
+One earlier branch run gave one edit at 8 of 9 pages, with the harness's known snapshot miss beside it. The pinned runs show the same miss and the same result, so this is the harness's flake and not this branch's. The foreign-write detection itself is proven only by this package's tests, not by a write under `CiceroPage`. On `./test/index.md` the branch and the pin both exit with the same error on `--edits 'key:3;enter'`, with 7 pages under the CLI against 6 under the view, and no foreign write was seen.
+
+## Not done
+
+`CiceroPage` answers no `reach` yet. prosemirror-beltype still pins `a4ac0a5`, so it gets none of this until the pin moves. Late truth still dirties only its own entry, not the entry before it. Observing shadow roots: a writer inside a shadow root is not seen. The fill queue per document is prosemirror-beltype's and Cicero's.
+

@@ -14,6 +14,8 @@
  *
  * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
+ * Foreign writes. The model is the truth and no input is left to the browser's DOM editing, but `beforeinput` is not the only way into the DOM: `execCommand`, a writing assistant, a text expander, a handler that takes an event without preventing it. A write that keeps the height moves no observer, and would stay on screen with the model not holding it, to be lost at the next save. So a `MutationObserver` watches the fragments, and a text node changed, added or removed outside a composition dirties its fragment, which is drawn again from the model; nothing is read back. The view's own fills write whole elements and are not taken for such a write, and the container's contract says so. A writer that answers every redraw (a translator) stops being answered after `FOREIGN_BUDGET` per entry and per document, with one warning. The root also carries the opt-outs those writers honour, `translate="no"` and Grammarly's and LanguageTool's attributes, so most never write; a host that wants one of them back removes its attribute from `view.dom`.
+ *
  * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
  * Scrolling. A transaction that asks for it (`scrollIntoView`) scrolls the head's rectangle into the view of every scrolling ancestor, as `EditorView` does, with `scrollThreshold`, `scrollMargin` and `handleScrollToSelection` read as it reads them. The head may stand in a fragment still to be filled when the transaction is applied, so the scroll is made again at each update until the chain has settled up to the head.
@@ -56,6 +58,12 @@ const MAC = /Mac/.test(globalThis.navigator?.platform ?? '');
 const DELETES = /^delete(?!ByDrag)/;
 
 /** The events that are the user acting on the view, counted to tell a selection change the user caused from one the browser made alone. */
+/** How many foreign writes one entry's redraw answers for one document: a writer still at it after that is answering the redraw. */
+const FOREIGN_BUDGET = 3;
+
+/** What the root carries so the writers that honour it leave the fragments alone: page translation, Grammarly, LanguageTool. */
+const OPT_OUTS = [['translate', 'no'], ['data-gramm', 'false'], ['data-gramm_editor', 'false'], ['data-enable-grammarly', 'false'], ['data-lt-active', 'false']];
+
 const INPUTS = ['keydown', 'mousedown', 'touchstart', 'beforeinput', 'compositionstart', 'cut', 'paste', 'dragstart'];
 
 /** The name of the highlight that paints the model's selection. */
@@ -257,6 +265,7 @@ export class FragmentedView {
     this.dom.className = 'fragview';
     // The text mechanics prosemirror-view's own stylesheet sets, so a typed space shows and lines wrap as they do there.
     Object.assign(this.dom.style, { whiteSpace: 'break-spaces', overflowWrap: 'break-word', fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0' });
+    for (const [name, value] of OPT_OUTS) this.dom.setAttribute(name, value);
     if (typeof place === 'function') place(this.dom);
     else if (place) place.appendChild(this.dom);
     this.dispatch = this.dispatch.bind(this);
@@ -279,7 +288,7 @@ export class FragmentedView {
     /** Per built fragment, the decoration ranges of its last paint. @type {Map<number, { fill: number | undefined, sig: string, ranges: [string, StaticRange][] }>} */
     this.painted = new Map();
     this.scheduled = false;
-    /** The fill in flight per entry, so one state is not filled twice. @type {Map<number, { doc: PMNode, from: number }>} */
+    /** The fill in flight per entry, so one state is not filled twice. A `dirtied` that names the entry while it flies waits for it, and the fill is made again: `asked` tells. @type {Map<number, { doc: PMNode, from: number }>} */
     this.filling = new Map();
     /** The browser is composing; nothing is rendered until it ends. */
     this.composing = false;
@@ -324,6 +333,10 @@ export class FragmentedView {
     this.onSelectionChange = () => { if (this.hasFocus()) this.noteDrop() || this.readSelection(); };
     this.dom.ownerDocument.addEventListener('selectionchange', this.onSelectionChange);
     installSelectionStyle(this.dom.ownerDocument);
+    /** Foreign writes answered per entry, for one document. @type {{ doc: PMNode | null, counts: Map<number, number>, warned: boolean }} */
+    this.foreign = { doc: null, counts: new Map(), warned: false };
+    this.foreignObserver = new MutationObserver((records) => this.onMutations(records));
+    this.foreignObserver.observe(this.dom, { childList: true, characterData: true, subtree: true });
     this.update(null);
   }
 
@@ -628,7 +641,8 @@ export class FragmentedView {
     this.filling.set(entry.key, { doc, from: entry.from });
     this.filledFrom.set(entry.key, entry.from);
     this.fillCount.set(entry.key, (this.fillCount.get(entry.key) ?? 0) + 1);
-    container.fill(doc, entry.from, this.render).then(({ to, next }) => {
+    const asked = entry.asked;
+    container.fill(doc, entry.from, this.render).then(({ to, next, reach }) => {
       if (this.containers.get(entry.key) !== container) return; // released since, by an invalidation or a destroy: its answer is stale
       const mine = this.filling.get(entry.key);
       if (mine?.doc === doc && mine.from === entry.from) this.filling.delete(entry.key);
@@ -636,12 +650,14 @@ export class FragmentedView {
       const entries = this.entries;
       const at = entries.findIndex((e) => e.key === entry.key);
       if (at < 0 || entries[at].from !== entry.from) return;
+      // Asked again while it flew, with the document the same: this answer may be older than what was asked.
+      if (entries[at].asked !== asked) { this.refresh(); return; }
       this.hints.set(entry.key, next);
       this.boxHeight = container.dom.offsetHeight;
       // A container may write its DOM after the wait (a page the engine cuts), so the answer of the fragment that holds the head draws the browser's selection again.
       if (this.entries[this.indexAt(this.state.selection.head)]?.key === entry.key) this.drawnFill = null;
       let tr = null;
-      if (entries[at].dirty || entries[at].to !== to) tr = refilled(this.state.tr, entry.key, to);
+      if (entries[at].dirty || entries[at].to !== to || entries[at].reach !== reach) tr = refilled(this.state.tr, entry.key, to, reach);
       if (to != null && at === entries.length - 1) tr = appended(tr ?? this.state.tr, to);
       if (tr) this.dispatch(tr);
       else { this.refresh(); this.paint(); } // a clean fragment built again, with nothing to record
@@ -1097,7 +1113,7 @@ export class FragmentedView {
 
   /** @param {KeyboardEvent} event */
   onKeyDown(event) {
-    if (this.custom(event) || this.composing || event.isComposing || event.keyCode === 229) return;
+    if (this.custom(event) || !this.editable || this.composing || event.isComposing || event.keyCode === 229) return;
     this.readSelection();
     if (this.someProp('handleKeyDown', (f) => f(this, event)) || this.captureArrow(event) || this.leftAcrossCut(event)) event.preventDefault();
   }
@@ -1345,13 +1361,36 @@ export class FragmentedView {
     const taken = this.custom(event);
     this.composing = false;
     this.drawnFill = null; // the browser's caret stands in text the model does not hold
-    if (!taken) {
-      const { from, to, head } = this.state.selection;
-      const key = this.entries[this.indexAt(head)]?.key;
-      if (event.data && this.editable) this.insertText(event.data, from, to);
-      if (this.entries.some((e) => e.key === key && !e.dirty)) this.dispatch(dirtied(this.state.tr, key));
-    }
+    const { from, to, head } = this.state.selection;
+    const key = this.entries[this.indexAt(head)]?.key;
+    if (!taken && event.data && this.editable) this.insertText(event.data, from, to);
+    // A handler that took the event still leaves the browser's composed text in the fragment.
+    if (this.entries.some((e) => e.key === key && !e.dirty)) this.dispatch(dirtied(this.state.tr, key));
     this.update(this.state);
+  }
+
+  /**
+   * Dirty the fragments whose text a writer outside the model changed (see "Foreign writes" above).
+   * @param {MutationRecord[]} records
+   */
+  onMutations(records) {
+    if (this.destroyed || this.composing) return;
+    const doc = this.state.doc;
+    if (this.foreign.doc !== doc) this.foreign = { doc, counts: new Map(), warned: this.foreign.warned };
+    const keys = new Set();
+    for (const record of records) {
+      if (record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3)) continue;
+      for (const [key, container] of this.containers) {
+        if (!container.dom.contains(record.target)) continue;
+        const count = this.foreign.counts.get(key) ?? 0;
+        if (count < FOREIGN_BUDGET) keys.add(key);
+        else if (!this.foreign.warned) { this.foreign.warned = true; console.warn('prosemirror-fragview: something keeps writing into a fragment after it is drawn from the model; its writes are left on screen.'); }
+        break;
+      }
+    }
+    if (!keys.size) return;
+    for (const key of keys) this.foreign.counts.set(key, (this.foreign.counts.get(key) ?? 0) + 1);
+    this.dispatch(dirtied(this.state.tr, [...keys]));
   }
 
   destroy() {
@@ -1364,6 +1403,7 @@ export class FragmentedView {
     for (const view of this.pluginViews) view.destroy?.();
     for (const container of this.containers.values()) container.release();
     this.observer?.disconnect();
+    this.foreignObserver.disconnect();
     const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
     for (const name of this.highlightNames) highlights?.delete(name);
     highlights?.delete(SELECTION_HIGHLIGHT);
