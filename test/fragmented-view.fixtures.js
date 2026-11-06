@@ -79,6 +79,7 @@ export async function run() {
   results.overFill = await redrawDuringFill();
   results.reach = await answeredReach();
   results.foreign = await foreignWrites();
+  results.hint = await changedHint();
   return results;
 }
 
@@ -144,6 +145,32 @@ async function answeredReach() {
   out.dirtyPastTheWord = view.entries[0].dirty;
   await settled(view);
   out.refilled = view.fillCount.get(first.key) - fills;
+  view.destroy();
+  return out;
+}
+
+/** A refill that answers the same `to` under another hint: the next fragment was cut under the old one, so it is filled again, and a same hint ends the ripple. */
+async function changedHint() {
+  let hint = { carried: 1 };
+  const body = 'A long enough run of words for a second box to hold the rest of it and more '.repeat(12);
+  const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p(body)) }), containers: () => {
+    const box = new OverflowBox({ width: 300, height: 100 });
+    const fill = box.fill.bind(box);
+    box.fill = async (...args) => { const a = await fill(...args); return a.to == null ? a : { ...a, next: hint }; };
+    return box;
+  } });
+  await settled(view);
+  const [first, second, third] = view.entries;
+  const counts = () => [first, second, third].map((e) => view.fillCount.get(e.key));
+  const round = async () => {
+    const before = counts();
+    view.redraw(first.from + 1);
+    await settled(view);
+    return counts().map((n, i) => n - before[i]);
+  };
+  const out = { same: await round() };
+  hint = { carried: 2 };
+  out.changed = await round();
   view.destroy();
   return out;
 }

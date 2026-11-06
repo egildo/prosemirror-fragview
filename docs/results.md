@@ -631,3 +631,9 @@ One earlier branch run gave one edit at 8 of 9 pages, with the harness's known s
 
 `CiceroPage` answers no `reach` yet. prosemirror-beltype still pins `a4ac0a5`, so it gets none of this until the pin moves. Late truth still dirties only its own entry, not the entry before it. Observing shadow roots: a writer inside a shadow root is not seen. The fill queue per document is prosemirror-beltype's and Cicero's.
 
+# A hint moved under an equal `to`
+
+The ripple stopped when a fill answered the same `to`, though the next fragment had been cut under the old hint. The view now compares a fill's hint with the last one, by its JSON, and fills the next fragment when it moved. A same hint ends the ripple as before. A fragmentainer keeps positions out of its hint or relative, or a shift alone counts as a change; prosemirror-beltype's hints are relative for this reason.
+
+`npm test` 82 of 82 (one new test, red before the fix). Under `CiceroPage`, `fixtures/tall` `tail:1` went from 4 of 10 pages agreeing with a fresh fill to 9 of 9, with the relative hints beside it; the numbers are in prosemirror-beltype's results.
+

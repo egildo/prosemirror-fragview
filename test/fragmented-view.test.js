@@ -61,3 +61,8 @@ test('a writer that answers every redraw stops being answered, with one warning'
   assert.ok(r.foreign.loop.fills <= 4, `${r.foreign.loop.fills} fills`);
   assert.equal(r.foreign.loop.warnings, 1);
 });
+
+test('a refill that keeps its to but changes its hint fills the next fragment, and a same hint does not', () => {
+  assert.deepEqual(r.hint.same, [1, 0, 0]);
+  assert.deepEqual(r.hint.changed.slice(0, 2), [1, 1], 'the changed hint reached the next fragment');
+});
