@@ -48,12 +48,13 @@
  * @typedef {object} FillResult
  * @property {number | null} to The position the fragmentainer's content stops at, null when everything from `from` fit.
  * @property {ContainerHint} [next] A hint about the container that should follow.
+ * @property {number | null} [reach] The last position the decision of where to stop read, null for the end of the document. A change up to it dirties this fragment. Omitted, the first word after `to` stands for it, which is all a greedy line break reads; a fragmentainer with a rule that reads further (widows, a kept block) answers it.
  */
 
 /**
  * A component that pulls content from a position and gives back the position where it had to stop.
  * @typedef {object} Fragmentainer
- * @property {HTMLElement} dom The component's root element, placed by the view.
+ * @property {HTMLElement} dom The component's root element, placed by the view. Its text is written as whole elements: a text node added, removed or changed in place under it is read as a writer outside the model (see the view's "Foreign writes").
  * @property {(doc: PMNode, from: number, render: SliceRenderer) => Promise<FillResult>} fill Render the slice of `doc` from `from` under the component's geometry and decide where it ends; the DOM is written before the promise's first wait, so a caller that reads the DOM straight after the call sees the new content.
  * @property {(pos: number) => { node: globalThis.Node, offset: number } | null} pointAt The DOM point a position is shown at inside the component, null when the component does not show it.
  * @property {(node: globalThis.Node, offset: number) => number | null} posAt The position a DOM point inside the component stands for, null when the point is not the component's.

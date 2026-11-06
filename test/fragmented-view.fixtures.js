@@ -6,6 +6,8 @@
 
 import { doc, p } from 'prosemirror-test-builder';
 import { EditorState } from 'prosemirror-state';
+import { keymap } from 'prosemirror-keymap';
+import { baseKeymap } from 'prosemirror-commands';
 import { FragmentedView, OverflowBox, AWAY_SHEET, CONTINUATION_SHEET } from '../src/index.js';
 
 const words = 'A change of conditions dirties every entry and every container of the chain '.repeat(4).trim();
@@ -73,5 +75,147 @@ export async function run() {
   results.setProps = { cuts: cuts(view), boxes: boxes(view, old), fresh: await freshCuts(view.state, [250, 150]) };
 
   view.destroy();
+  results.readOnly = readOnly();
+  results.overFill = await redrawDuringFill();
+  results.reach = await answeredReach();
+  results.foreign = await foreignWrites();
   return results;
+}
+
+/** The keys a keymap edits with, on a view that is not editable and, as the control, on one that is. */
+function readOnly() {
+  const press = (editable) => {
+    const state = EditorState.create({ doc: doc(p('one two')), plugins: [keymap(baseKeymap)] });
+    const view = new FragmentedView(document.body, { state, editable: () => editable, containers: () => new OverflowBox() });
+    const before = view.state.doc;
+    view.dom.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    const unchanged = view.state.doc.eq(before);
+    view.destroy();
+    return unchanged;
+  };
+  return { readOnly: press(false), editable: press(true) };
+}
+
+/** A box whose fill waits on a gate the fixture opens, so something can arrive while it is in flight. */
+function gatedBox(gates, extra = {}) {
+  const box = new OverflowBox({ width: 300, height: 200 });
+  const fill = box.fill.bind(box);
+  box.fill = async (...args) => {
+    const answer = await fill(...args);
+    await new Promise((resolve) => gates.push(resolve));
+    return { ...answer, ...extra };
+  };
+  return box;
+}
+
+/** `redraw` while the page's fill is in flight: the page is filled again and ends clean, not left with the fill older than the ask. */
+async function redrawDuringFill() {
+  const gates = [];
+  const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p('short')) }), containers: () => gatedBox(gates) });
+  const key = view.entries[0].key;
+  const open = async () => { while (gates.length) gates.shift()(); await new Promise((r) => setTimeout(r, 20)); };
+  while (!(view.filling.size === 0 && view.entries.every((e) => !e.dirty))) await open();
+  view.redraw(1);
+  const started = view.fillCount.get(key);
+  await new Promise((r) => setTimeout(r, 20));
+  view.redraw(1); // the fill in flight began before this ask
+  while (!(view.filling.size === 0 && view.entries.every((e) => !e.dirty))) await open();
+  const out = { fillsAfterFirstAsk: view.fillCount.get(key) - started, dirty: view.entries[0].dirty };
+  view.destroy();
+  return out;
+}
+
+/** A fill's `reach` reaches the entry, and a change up to it refills the page before. */
+async function answeredReach() {
+  const gates = [];
+  const body = 'A long enough run of words for a second box to hold the rest of it and more '.repeat(12);
+  const state = EditorState.create({ doc: doc(p(body)) });
+  const view = new FragmentedView(document.body, { state, containers: () => {
+    const box = new OverflowBox({ width: 300, height: 100 });
+    const fill = box.fill.bind(box);
+    box.fill = async (...args) => { const a = await fill(...args); return a.to == null ? a : { ...a, reach: a.to + 40 }; };
+    return box;
+  } });
+  await settled(view);
+  const first = view.entries[0];
+  const out = { reach: first.reach - first.to };
+  const fills = view.fillCount.get(first.key);
+  view.dispatch(view.state.tr.insertText('x', first.to + 30));
+  out.dirtyPastTheWord = view.entries[0].dirty;
+  await settled(view);
+  out.refilled = view.fillCount.get(first.key) - fills;
+  view.destroy();
+  return out;
+}
+
+/** Writes that reach the fragment's text without passing the model are drawn over from the model; the view's own fills are not taken for them. */
+async function foreignWrites() {
+  const out = {};
+  const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p('alpha beta gamma'), p('delta')) }), containers: () => new OverflowBox({ width: 300, height: 200 }) });
+  await settled(view);
+  const text = () => view.fragments[0].container.dom.textContent;
+  const quiet = async () => { await new Promise((r) => setTimeout(r, 30)); await settled(view); };
+  const key = view.entries[0].key;
+  const count = () => view.fillCount.get(key);
+
+  out.optOut = ['translate', 'data-gramm', 'data-gramm_editor', 'data-enable-grammarly', 'data-lt-active'].map((a) => view.dom.getAttribute(a));
+
+  // The view's own fills count for nothing: a typed character is one fill, and idling after it none.
+  let at = count();
+  view.dispatch(view.state.tr.insertText('X', 1));
+  await quiet();
+  out.ownFills = count() - at;
+  at = count();
+  await quiet();
+  out.idleFills = count() - at;
+
+  // Text changed in place, at the same height.
+  view.dom.querySelector('p').firstChild.data = 'Xalpha beta gammb';
+  await quiet();
+  out.inPlace = text();
+
+  // execCommand reaches the DOM with no beforeinput the view could prevent.
+  const node = view.dom.querySelector('p').firstChild;
+  view.focus();
+  const selection = view.dom.ownerDocument.getSelection();
+  selection.setBaseAndExtent(node, 1, node, 1);
+  view.dom.ownerDocument.execCommand('insertText', false, 'ZZ');
+  out.execWrote = text().includes('ZZ');
+  await quiet();
+  out.execCommand = text();
+  out.modelText = view.state.doc.textContent;
+
+  // A later document gives the budget back.
+  view.dispatch(view.state.tr.insertText('Y', 1));
+  await quiet();
+  view.dispatch(view.state.tr.delete(1, 2));
+  await quiet();
+
+  // A new text node, and text taken away.
+  view.dom.querySelector('p').appendChild(view.dom.ownerDocument.createTextNode(' added'));
+  await quiet();
+  out.added = text();
+  view.dom.querySelector('p').firstChild.remove();
+  await quiet();
+  out.removed = text();
+
+  view.dispatch(view.state.tr.insertText('Y', 1));
+  await quiet();
+  view.dispatch(view.state.tr.delete(1, 2));
+  await quiet();
+
+  // A writer that answers every redraw with another write stops being answered: the budget, per entry and per document.
+  at = count();
+  const writer = new MutationObserver(() => { const n = view.dom.querySelector('p')?.firstChild; if (n && !n.data.endsWith('!')) n.data += '!'; });
+  writer.observe(view.dom, { childList: true, characterData: true, subtree: true });
+  const warned = console.warn;
+  let warnings = 0;
+  console.warn = () => { warnings++; };
+  view.dom.querySelector('p').firstChild.data += '!';
+  await new Promise((r) => setTimeout(r, 200));
+  console.warn = warned;
+  writer.disconnect();
+  out.loop = { fills: count() - at, warnings };
+  view.destroy();
+  return out;
 }
