@@ -10,9 +10,9 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word), except that a caret at the edge of its textblock deletes nothing, as in `prosemirror-view`: the join across blocks is the commands', which honour `isolating`. The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root, and a node view's `stopEvent` answers for its element.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word), except that a caret at the edge of its textblock deletes nothing, as in `prosemirror-view`: the join across blocks is the commands', which honour `isolating`. The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to, and the view listens to every event a `handleDOMEvents` names, in its direct props or in any plugin's, `focus` and `blur` included. A paste asks `transformPastedHTML` or `transformPastedText` before it parses and `transformPasted` after, and a clipboard with nothing to parse (a file alone) still asks `handlePaste`, with an empty slice. A click asks `handleClickOn` for each node around it, innermost first, then `handleClick`, at the release; a double or triple click asks `handleDoubleClickOn` and `handleDoubleClick`, or the triple forms, at the press. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root, and a node view's `stopEvent` answers for its element.
  *
- * The selection. The model's selection is the truth, and the view stands down from the browser's while focus is outside the root or on an element inside it that keeps its own input (`ownsSelection`), so a control focused inside a page keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is the view's as the root is. `hasFocus()` itself is `prosemirror-view`'s rule, the root and nothing else. The selection is painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
+ * The selection. The model's selection is the truth, and the view stands down from the browser's while focus is outside the root or on an element inside it that keeps its own input (`ownsSelection`), so a control focused inside a page keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is the view's as the root is. `hasFocus()` itself is `prosemirror-view`'s rule, the root and nothing else. The selection is painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click that no handler takes is left to the browser.
  *
  * Foreign writes. The model is the truth and no input is left to the browser's DOM editing, but `beforeinput` is not the only way into the DOM: `execCommand`, a writing assistant, a text expander, a handler that takes an event without preventing it. A write that keeps the height moves no observer, and would stay on screen with the model not holding it, to be lost at the next save. So a `MutationObserver` watches the fragments, and a text node changed, added or removed outside a composition dirties its fragment, which is drawn again from the model; nothing is read back. A leaf's own drawing is outside this: it holds none of the document's text, and a custom element in one may render what it likes. The view's own fills write whole elements and are not taken for such a write, and the container's contract says so. A writer that answers every redraw (a translator) stops being answered after `FOREIGN_BUDGET` per entry and per document, with one warning. The root also carries the opt-outs those writers honour, `translate="no"` and Grammarly's and LanguageTool's attributes, so most never write; a host that wants one of them back removes its attribute from `view.dom`.
  *
@@ -24,7 +24,7 @@ Decorations. Inline decorations with a class are painted with the CSS Custom Hig
  *
  * Node views. A leaf node type may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the page that holds the node, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's is refused by name at the prop.
  *
- * What the view does not do yet, besides the above: block node views, mark views, `handleClick` and its kin, drag and drop (both halves are refused), `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
+ * What the view does not do yet, besides the above: block node views, mark views, drag and drop (both halves are refused), the `attributes` prop, and bidirectional text in `endOfTextblock`.
  *
  * @packageDocumentation
  */
@@ -309,7 +309,7 @@ export class FragmentedView {
     this.inputs = 0;
     this.drawnInputs = 0;
     this.dropped = false;
-    /** The press the view owns until its release: the model position it selects from, the leaf under it, where the pointer last was, and whether a move has taken over the selection. @type {{ anchor: number, inside: number, left: number, top: number, moved: boolean } | null} */
+    /** The press the view owns until its release: the model position it selects from, the leaf under it, where the pointer last was, and whether a move has taken over the selection. @type {{ pos: number, anchor: number, inside: number, left: number, top: number, moved: boolean } | null} */
     this.pointer = null;
     this.onPointerMove = (/** @type {MouseEvent} */ e) => this.onMouseMove(e);
     this.onPointerScroll = () => this.followPointer();
@@ -338,7 +338,7 @@ export class FragmentedView {
       compositionend: (e) => this.onCompositionEnd(e),
       mousedown: (e) => this.onMouseDown(e),
       // The focus coming back from a control finds the browser's selection where the control left it: the model's is drawn before anything reads it or a Shift+click extends it. Only then: focus also reaches the root in the middle of a click on a focusable element holding text, from that element, and a draw there would overwrite the click.
-      focus: (e) => { if (e.relatedTarget && this.dom.contains(e.relatedTarget) && this.keepsInput(e.relatedTarget)) this.selectionToDOM(); },
+      focus: (e) => { if (this.custom(e)) return; if (e.relatedTarget && this.dom.contains(e.relatedTarget) && this.keepsInput(e.relatedTarget)) this.selectionToDOM(); },
     };
     for (const [type, handler] of Object.entries(this.handlers)) {
       this.handlers[type] = (e) => { if (!this.ownedInside(e)) handler(e); };
@@ -540,6 +540,7 @@ export class FragmentedView {
     for (const [key, placeholder] of this.placeholders) if (!keys.has(key)) { this.observer?.unobserve(placeholder); placeholder.remove(); this.placeholders.delete(key); }
     for (const key of this.hints.keys()) if (!keys.has(key)) this.hints.delete(key);
     this.place();
+    this.ensureListeners();
     const editable = !this.someProp('editable', (f) => f(this.state) === false);
     if (editable !== this.editable || !prev) this.dom.contentEditable = String((this.editable = editable));
     this.refresh();
@@ -1137,6 +1138,35 @@ export class FragmentedView {
   }
 
   /**
+   * One listener for every `handleDOMEvents` key, from the direct props and every plugin, that the view has no handler of its own for: `prosemirror-view`'s `ensureListeners`, asked at every update so a plugin or a prop that arrives later is heard. A listener is never removed; one whose handler has gone finds none.
+   */
+  ensureListeners() {
+    this.someProp('handleDOMEvents', (handlers) => {
+      for (const type in handlers) if (!this.handlers[type]) {
+        this.handlers[type] = (e) => { if (!this.ownedInside(e)) this.custom(e); };
+        this.dom.addEventListener(type, this.handlers[type]);
+      }
+    });
+  }
+
+  /**
+   * Ask the click handlers named `name` (`Click`, `DoubleClick`, `TripleClick`): the `On` form for every node around `inside`, innermost first, the node at `inside` itself as direct, then the plain form; `prosemirror-view`'s `runHandlerOnContext`. True when one took the click.
+   * @param {string} name
+   * @param {number} pos
+   * @param {number} inside
+   * @param {MouseEvent} event
+   */
+  clickHandlers(name, pos, inside, event) {
+    if (inside > -1) {
+      const $pos = this.state.doc.resolve(Math.min(inside, this.state.doc.content.size));
+      for (let i = $pos.depth + 1; i > 0; i--) {
+        if (this.someProp(`handle${name}On`, (f) => (i > $pos.depth ? f(this, pos, $pos.nodeAfter, $pos.before(i), event, true) : f(this, pos, $pos.node(i), $pos.before(i), event, false)))) return true;
+      }
+    }
+    return !!this.someProp(`handle${name}`, (f) => f(this, pos, event));
+  }
+
+  /**
    * Run `handleDOMEvents` for the event; true when a handler took it.
    * @param {Event} event
    */
@@ -1153,12 +1183,18 @@ export class FragmentedView {
    */
   onMouseDown(event) {
     if (!event.shiftKey) this.drawnAnchor = null;
-    if (this.custom(event) || event.button !== 0 || event.detail > 1) return;
+    if (this.custom(event) || event.button !== 0) return;
+    if (event.detail > 1) {
+      // A double or a triple click asks its handlers at the press, as in `prosemirror-view`; what none takes is the browser's (a word, a paragraph).
+      const at = event.detail < 4 && this.posAtCoords({ left: event.clientX, top: event.clientY });
+      if (at && this.clickHandlers(event.detail === 2 ? 'DoubleClick' : 'TripleClick', at.pos, at.inside, event)) event.preventDefault();
+      return;
+    }
     this.endPointer();
     this.readSelection();
     const at = this.posAtCoords({ left: event.clientX, top: event.clientY });
     if (!at) return;
-    this.pointer = { anchor: event.shiftKey ? this.state.selection.anchor : at.pos, inside: event.shiftKey ? -1 : at.inside, left: event.clientX, top: event.clientY, moved: false };
+    this.pointer = { pos: at.pos, anchor: event.shiftKey ? this.state.selection.anchor : at.pos, inside: event.shiftKey ? -1 : at.inside, left: event.clientX, top: event.clientY, moved: false };
     const doc = this.dom.ownerDocument;
     doc.addEventListener('mousemove', this.onPointerMove, true);
     doc.addEventListener('scroll', this.onPointerScroll, true);
@@ -1198,6 +1234,7 @@ export class FragmentedView {
     this.endPointer();
     if (!pointer) return;
     if (pointer.moved) this.focus();
+    else if (this.clickHandlers('Click', pointer.pos, pointer.inside, event)) event.preventDefault();
     else if (pointer.inside > -1 && this.selectClickedLeaf(Math.min(pointer.inside, this.state.doc.content.size))) event.preventDefault();
   }
 
@@ -1419,11 +1456,12 @@ export class FragmentedView {
     this.readSelection();
     const { state } = this;
     const $context = state.selection.$from;
-    const html = event.clipboardData.getData('text/html'), text = event.clipboardData.getData('text/plain');
+    let html = event.clipboardData.getData('text/html'), text = event.clipboardData.getData('text/plain');
     const parser = this.someProp('clipboardParser') || this.someProp('domParser') || PMDOMParser.fromSchema(state.schema);
-    let slice, sliceData;
+    let slice = null, sliceData;
     if (html) {
       // An inert document: nothing in the pasted markup runs.
+      this.someProp('transformPastedHTML', (f) => { html = f(html, this); });
       let dom = new globalThis.DOMParser().parseFromString(html, 'text/html').body;
       const contextNode = dom.querySelector('[data-pm-slice]');
       sliceData = contextNode && /^(\d+) (\d+)(?: -(\d+))? (.*)/.exec(contextNode.getAttribute('data-pm-slice') || '');
@@ -1431,6 +1469,7 @@ export class FragmentedView {
       slice = parser.parseSlice(dom, { context: $context, preserveWhitespace: !!sliceData });
       if (sliceData) slice = addContext(closeSlice(slice, +sliceData[1], +sliceData[2]), sliceData[4]);
     } else if (text) {
+      this.someProp('transformPastedText', (f) => { text = f(text, false, this); });
       const textParser = this.someProp('clipboardTextParser');
       if (textParser) slice = textParser(text, $context, false, this);
       else {
@@ -1442,10 +1481,14 @@ export class FragmentedView {
         }
         slice = parser.parseSlice(holder, { context: $context, preserveWhitespace: true });
       }
-    } else return;
-    // ponytail: HTML from outside ProseMirror is opened as far as it goes, without prosemirror-view's normalizeSiblings and its closing at isolating nodes.
-    if (!sliceData) slice = Slice.maxOpen(slice.content, true);
-    if (this.someProp('handlePaste', (f) => f(this, event, slice))) return;
+    }
+    if (slice) {
+      // ponytail: HTML from outside ProseMirror is opened as far as it goes, without prosemirror-view's normalizeSiblings and its closing at isolating nodes.
+      if (!sliceData) slice = Slice.maxOpen(slice.content, true);
+      this.someProp('transformPasted', (f) => { slice = f(slice, this, false); });
+    }
+    // A clipboard with nothing the parser reads (a file alone, an image) still asks `handlePaste`, with an empty slice, as `prosemirror-view` does.
+    if (this.someProp('handlePaste', (f) => f(this, event, slice || Slice.empty)) || !slice) return;
     const single = slice.openStart === 0 && slice.openEnd === 0 && slice.content.childCount === 1 ? slice.content.firstChild : null;
     const tr = single ? state.tr.replaceSelectionWith(single) : state.tr.replaceSelection(slice);
     this.dispatch(tr.scrollIntoView().setMeta('paste', true).setMeta('uiEvent', 'paste'));
