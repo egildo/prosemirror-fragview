@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+Fixes from the assessment of 2026-11-07.
+
+- A later page renumbers after an edit an earlier page absorbs. An item inserted or removed before a cut in a list left the next page's `value` and away siblings as they were, so its numbers and its `:nth-child` and `+` selectors read stale on screen while print was right. A step that inserts or removes a child of one of an entry's divided ancestors before the one it opens in now dirties the entry. The document's own children are left out, since counting them would refill every later page on every new paragraph.
+- A refused node view arriving with a new state throws before the view takes the state. A host that registers such a plugin at runtime (Tiptap's `registerPlugin`) used to leave the view holding a state its DOM never drew. `setProps` with a refused `nodeViews` keeps the old props the same way.
+- A selection read back from a page not yet refilled, or an input's target range there, no longer resolves a position past the document's end: it is passed over, as `posAtCoords` and `leafAround` already passed it.
+- The view answers `root`, `_root`, `props`, `isDestroyed` and `dragging` as `EditorView` does, so a plugin that reads them at construction (`prosemirror-tables`) no longer throws. `root` is the document or shadow root the view lives in, and `hasFocus()` and the selection's stand-down ask it, so a view inside a shadow root sees its focus. `dragging` is always null. `root` does not patch `getSelection` onto a shadow root's prototype as `prosemirror-view` does.
+
 A clean checkout passes its tests. Vite's dependency optimizer is off for the harness and the suites, since every dependency here is an ES module; with it on, parallel suite files fought over one cache and 57 to 61 of 157 tests failed on the first run. `FRAGVIEW_VITE_CACHE` goes with it.
 
 A release is published by hand. `scripts/release.sh` installs, tests and publishes from a clean checkout of HEAD, then tags and pushes, signed in to npm with Egildo's security key. `.github/workflows/release.yml` is gone, and with it the token and the provenance attestation; the record is *a release moves three remotes at once*, amended 2026-11-07.

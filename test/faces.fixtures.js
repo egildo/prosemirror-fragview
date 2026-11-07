@@ -108,6 +108,15 @@ window.fixture = {
       return { name: /** @type {Error} */ (error).name, message: /** @type {Error} */ (error).message };
     }
   },
+  /** A state reconfigured with a plugin whose node view is refused, as a host registering a plugin at runtime: the refusal, and whether the view's state and DOM stood. */
+  refusedAtRuntime() {
+    const v = /** @type {FragmentedView} */ (view);
+    const before = { state: v.state, html: v.dom.innerHTML };
+    const plugin = new Plugin({ props: { nodeViews: { paragraph: () => ({ dom: document.createElement('div') }) } } });
+    let refusal = null;
+    try { v.updateState(v.state.reconfigure({ plugins: [...v.state.plugins, plugin] })); } catch (error) { refusal = /** @type {Error} */ (error).name; }
+    return { refusal, sameState: v.state === before.state, sameDom: v.dom.innerHTML === before.html };
+  },
   /** The position of the first node of `type`. @param {string} [type] */
   posOf(type = 'embed') {
     let found = -1;

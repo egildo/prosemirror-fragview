@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from 'prosemirror-state';
-import { doc, p, ul, li, schema } from 'prosemirror-test-builder';
+import { doc, p, ul, ol, li, schema } from 'prosemirror-test-builder';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from '../src/fragments-plugin.js';
 
 /** A state whose chain is two clean entries cut at tag `<cut>`. */
@@ -182,4 +182,14 @@ test('dirtied counts its asks on the entries it names, dirty or not, and a refil
   assert.equal(entries(filled)[1].dirty, false);
   const typed = filled.apply(filled.tr.insertText('x', 2));
   assert.equal(entries(typed)[1].asked, 2);
+});
+
+test('an item inserted or removed before an entry in a list it opens in dirties it, and text before it does not', () => {
+  const state = twoEntries(doc(ol(li(p('o<a>ne')), li(p('two')), li(p('<cut>three')))));
+  const inserted = state.apply(state.tr.insert(state.doc.tag.a - 2, li(p('new'))));
+  assert.equal(entries(inserted)[1].dirty, true);
+  const removed = state.apply(state.tr.delete(state.doc.tag.a - 2, state.doc.tag.a + 5));
+  assert.equal(entries(removed)[1].dirty, true);
+  const typed = state.apply(state.tr.insertText('XY', state.doc.tag.a));
+  assert.equal(entries(typed)[1].dirty, false);
 });

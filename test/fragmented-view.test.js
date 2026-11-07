@@ -66,3 +66,9 @@ test('a refill that keeps its to but changes its hint fills the next fragment, a
   assert.deepEqual(r.hint.same, [1, 0, 0]);
   assert.deepEqual(r.hint.changed.slice(0, 2), [1, 1], 'the changed hint reached the next fragment');
 });
+
+test('an item inserted before a cut that the earlier page absorbs renumbers the later page, as a fresh view numbers it', () => {
+  assert.deepEqual(r.ordinal.before, { value: '4', away: 3 });
+  assert.deepEqual(r.ordinal.after, r.ordinal.fresh);
+  assert.deepEqual(r.ordinal.fresh, { value: '5', away: 4 });
+});
