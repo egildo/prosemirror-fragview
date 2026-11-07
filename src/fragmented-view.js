@@ -1462,10 +1462,27 @@ export class FragmentedView {
       // A caret at the edge of its textblock deletes nothing, as `prosemirror-view`'s `stopNativeHorizontalDelete` has it: the browser's target range would reach into the block before or after, and `tr.delete` joins across any boundary, `isolating` or not. The join across blocks is the commands' (`joinBackward`, `joinForward`), which honour `isolating`.
       const dir = /Backward$/.test(type) ? 'backward' : /Forward$/.test(type) ? 'forward' : null;
       if (dir && this.endOfTextblock(dir)) return;
-      const range = this.targetRange(event);
+      // A browser that hands no target range (a synthetic event, or one outside Chromium, where this is not measured) gets one step of the model's: the character or the inline node beside the caret, a surrogate pair whole.
+      const range = this.targetRange(event) ?? (dir && type.startsWith('deleteContent') ? this.stepBeside(dir) : null);
       if (range && range.from < range.to) this.dispatch(state.tr.delete(range.from, range.to).scrollIntoView());
     }
     // Everything else (formatting commands, drops, history without the history plugin) is refused: the browser may not edit the fragment's DOM.
+  }
+
+  /**
+   * The one step a delete takes from an empty selection inside its textblock: the character beside the caret, a surrogate pair whole, or the inline node there.
+   * @param {'backward' | 'forward'} dir
+   */
+  stepBeside(dir) {
+    const { $head } = this.state.selection, pos = $head.pos;
+    const node = dir === 'backward' ? $head.nodeBefore : $head.nodeAfter;
+    if (!node) return null;
+    if (!node.isText) return dir === 'backward' ? { from: pos - node.nodeSize, to: pos } : { from: pos, to: pos + node.nodeSize };
+    const doc = this.state.doc;
+    const step = dir === 'backward'
+      ? (pos - 2 >= $head.start() && /[\uDC00-\uDFFF]/.test(doc.textBetween(pos - 1, pos)) ? 2 : 1)
+      : (pos + 2 <= $head.end() && /[\uD800-\uDBFF]/.test(doc.textBetween(pos, pos + 1)) ? 2 : 1);
+    return dir === 'backward' ? { from: pos - step, to: pos } : { from: pos, to: pos + step };
   }
 
   /**
