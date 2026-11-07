@@ -637,3 +637,75 @@ The ripple stopped when a fill answered the same `to`, though the next fragment 
 
 `npm test` 82 of 82 (one new test, red before the fix). Under `CiceroPage`, `fixtures/tall` `tail:1` went from 4 of 10 pages agreeing with a fresh fill to 9 of 9, with the relative hints beside it; the numbers are in prosemirror-beltype's results.
 
+# An element inside a page keeps its focus and its events
+
+A plain `<input>` drawn by a `toDOM` could not be typed in. The view prevented its `beforeinput`, ran the keymaps on its keys, read the browser's selection under it and wrote the selection back, which took the focus away. A custom element in a leaf that rendered text refilled its page up to the foreign-write budget, then warned. These hold whatever is ruled on node views, and no node view was built.
+
+## The fixes
+
+**`hasFocus()`** answers `activeElement === this.dom`, `prosemirror-view`'s rule, for the plugins that ask it. The view's own reads and writes of the browser's selection ask a narrower question, `ownsSelection()`: they stand down while focus is outside the root, on a form control, or inside a leaf's drawing. A first version used `hasFocus()` for this and was wrong: a click on a mark with a `tabindex` was never read into the model, and typing landed at the old selection with no sign. Such an element, a block with a `tabindex` and an editing host around a content hole all hold the document's text, so they are the view's as the root is.
+
+The callers relied on the old meaning in one place: a click on a leaf holding something focusable (a link, a `tabindex`) moved the focus off the root, and the selection write put it back by accident. The view now takes the focus back itself after a click or a drag it answers, as `prosemirror-view`'s `updateSelection` does. A `focus` handler on the root draws the model's selection when the focus comes back from a control or a leaf, since Chromium leaves the browser's selection standing on that drawing, and a Shift+click or a Shift+Tab back would otherwise start from there. It draws only then: in a click on a focusable element holding text, Chromium moves the focus to the root from that element after setting the caret, and a draw there overwrites the click.
+
+**Event ownership** is one function in front of every handler, `ownedInside(event)`, applied where the handlers are registered, so `handleDOMEvents` is behind it as well. An event belongs to the element when its path up to the root holds a form control, or when its target is editable inside a leaf's drawing. Stopping propagation alone cannot serve a plain `toDOM`, whose array form has no listeners, so a default test is needed. The test is Tiptap's list, read from the composed path so a `<span>` inside a `<button>`, an `<option>` and an input in an open shadow root all count. It adds no prop and no `data-` word. Everything else an element wants for itself, it stops at its own root, and a test proves that needs nothing from the view. A focus test was rejected: `mousedown` targets what is under the pointer, not what has focus. A click on any other part of an atom still selects it.
+
+**The mutation observer** skips a record inside a leaf's own drawing, found by `leafAround`, the walk `posAtCoords` already made, now shared. It asks the model, not the `contenteditable` attribute: an attribute test would misjudge a read-only root, a nested host inside a drawing, and a content hole inside an uneditable wrapper. A fragment not yet refilled answers the positions of the document it was filled from, so the walk and `posAtCoords` check the position against the document's end: measured, a deletion of most of the document left a page answering a position past it, `nodeAt` threw in the observer's callback, and the write was not drawn over.
+
+**`docView`** is a getter, `true` until `destroy()` and null after. No package in `node_modules` and no ProseMirror library in the reference clones reads `.docView` except `prosemirror-view` on its own instance. The read copy of `y-prosemirror` 1.3.7 reads it only as a truth test in its cursor plugin. So a truthy stand-in crashes nothing that was found.
+
+## The numbers
+
+`test/input.test.js`, written first: on the unchanged source 27 of 31 failed, and the other 4 are guards that must hold before and after (a click on an atom, a foreign write beside a leaf). A thirty-second test, the Shift+Tab back, was added later and seen red with the `focus` handler taken out. The eight tests of the review's two findings came after: on the first version six failed, the clicks in a mark, a block with a `tabindex` and a caption, and the walk's throw, while the same clicks pass on `main`. One of the six was a wrong assertion of mine: a button in editable content takes no focus from a click in Chromium, so its test now checks the press. Each line beyond the four fixes was taken out in turn and turned tests red.
+
+`npm test` 122 of 122 (82 before), twice running. A first run after running one suite alone failed 57 tests with `Execution context was destroyed`, the same error a cold checkout gives, which is vite's dependency pass reloading the page; the failures do not repeat on a warm cache. `chain`, `lossless`, `acts` and `fragments` print the same but for timings. `parity` shows the one row it showed before, *Mod-b straight after the Shift+Arrows*, the race in `EditorView` this file already calls a demonstration; run three times on each source it varies the same way. `compose` 11 of 11, `pointer` 9 of 9, `scroll` 8 of 8, `copy` 10 of 10, `atoms` 11 of 11, as before, and all five exit 0 with `--boxes`.
+
+Under `CiceroPage`, through a scratch copy of `scripts/specimen.mjs` aliased to this branch, on BelType's specimen: nine `<beltype-page>` with shadow roots, a click in text leaves `activeElement` on the root, three typed letters and a Backspace reach the model, and an edit agrees with a fresh fill on 9 of 9 pages.
+
+## Not done
+
+A refill still replaces the control and loses its state, focus and value included, so editing text in the same fragment empties an input. A control whose own box changes height causes that refill: measured, a CJK composition in an `<input>` of automatic height grows it, the box answers `moved`, and the input is gone mid-composition. The test's inputs have a fixed height for this reason. Both are what the node-view ruling decides. A view placed inside a shadow root never has focus, under the old rule and the new, because `ownerDocument.activeElement` answers the shadow host; `prosemirror-view` asks its `root`, a shim this round leaves out. An input in a closed shadow root must stop propagation itself, and a control in a shadow root in a non-leaf's drawing still counts as the view's for the selection. `readSelection` still resolves a position a fragment not yet refilled answers, with no guard: read, not measured, and the same on `main`. `y-prosemirror` was read, not run against the view. Only Chromium was run.
+
+# Leaf node views
+
+Built 2026-11-07 on the ruling that a leaf node type may have a node view and any other may not. The code is `src/faces.js`, with the stand-in in `src/slice-renderer.js`; the investigation and the spec are in BelType's `.claude/plans/node-views-fragview/`.
+
+## The wrapper
+
+The spec left the stand-in's wrapper to be settled, since an `inline-block` had collapsed a `width: 50%` image. Measured under a real `CiceroPage` in Chromium 153, a document of 8 paragraphs and 8 leaves on a 400 by 300 page, the chain of cuts for each shape against no wrapper at all:
+
+| Leaf drawn as | `block` or `inline` wrapper | `inline-block` wrapper | `display: contents` |
+| :--- | :--- | :--- | :--- |
+| A fixed block image | same chain | same chain | another chain, one page fewer |
+| A `width: 50%` block image, a `width: 10%` inline one | same chain | another chain, the inline image 2 px wide instead of 36 | another chain, one page fewer |
+
+`display: contents` loses the leaf because Cicero's block walk skips such a box and all it holds. So the wrapper is `display: block` around a block and `display: inline` around an inline node, and the size is pinned on the drawing inside it, since an inline box takes none. One shape differs from no wrapper: a block leaf drawn as a bare inline-level element, such as a default `<img>`, where the wrapper makes it a line of its own. A block leaf's `toDOM` should draw a block-level box.
+
+## Under a real page
+
+Six faced leaves holding an iframe and an input, on `CiceroPage`, with `moveBefore` in Chromium 153:
+
+- The chain equals the chain of the same document with no node views, and after two edits it equals a fresh chain of the final document.
+- An edit on the face's page and an insertion that moves the face to the next page keep the same element: the iframe's written document, no `load`, the input's value and focus. Six made, none destroyed, no warning.
+
+This ran from a scratch harness with fragview's source linked in (`measure6.mjs` beside the spec), since `prosemirror-beltype`'s pin stands before this branch. The test the spec owes in that package waits for the pin to move.
+
+## The blink
+
+A face leaves its page while the page fills. How often that shows was the open question.
+
+- With no image still loading, the face is out for 5 ms on a small page, and no frame paints in that time: none of 35 frames sampled.
+- When the page holds an image that has not loaded yet, the fill waits for it, and the face is gone for that wait: 217 ms and 14 frames with a picture served in 200 ms. A picture already loaded in this document costs nothing, even served `no-store`, since Blink's image memory cache answers.
+
+So the blink is seen when a picture first arrives on the face's page, not while typing. A door in the page's `setContent` that keeps a node already among its children would remove it; it is not built.
+
+## The numbers
+
+`npm test` 152 of 152, 30 of them the new `test/faces.test.js`. The scripts `compose`, `pointer`, `scroll`, `copy` and `atoms` report every act as expected.
+
+## Not done
+
+- A `<video>` with a real source across `moveBefore`: headless gave no stream.
+- Safari and Firefox. Where `moveBefore` is missing the face moves by `appendChild` and loses its state; the fallback is tested by deleting the method in Chromium.
+- Tiptap's renderers were read, not run.
+- Writing modes: sizes are read as width and height. A size is read to the pixel.
+- A `display: inline` face reports no size change, since `ResizeObserver` watches no inline box.
