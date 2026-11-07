@@ -19,8 +19,10 @@ interface Fragmentainer {
    * `to` is the position my content stops at, `null` when everything from `from` fit.
    * `next` is a hint about the container that should follow (a named page, a blank page); the basic box gives none.
    * `hint` is the one the fragment before me answered, the latest on every refill, so I cut under it and not only under the one I was made with.
+   * `reach` is the last position my decision read, when it read past the first word after `to` (a widow rule, a kept block).
+   * `shows` is what I show outside my own range, as a page after a cut through a table row shows the rest of an earlier cell.
    */
-  fill(doc: Node, from: number, render: SliceRenderer, hint?: ContainerHint): Promise<{ to: number | null; next?: ContainerHint }>;
+  fill(doc: Node, from: number, render: SliceRenderer, hint?: ContainerHint): Promise<{ to: number | null; next?: ContainerHint; reach?: number | null; shows?: { from: number; to: number | null } }>;
   /** Registration, both ways, inside me: the DOM point a position is shown at (null when I do not show it), and the position a DOM point stands for. */
   pointAt(pos: number): { node: globalThis.Node; offset: number } | null;
   posAt(node: globalThis.Node, offset: number): number | null;
@@ -116,7 +118,7 @@ Answered 2026-10-24, in the round that produced [*the engine knows no view*](../
 
 - `fill` is asynchronous for what the container can await (fonts and images already in the DOM), and `moved` carries what arrives after. Both, as `OverflowBox` already does.
 - The window estimate stays the view's mean span. The engine's heights table joins only if the placeholders visibly jump on the showcase.
-- An entry carries positions and the `next` hint the previous fill answered, never geometry: `pageOf(pos)` is an index lookup over the chain, and sizes stay on the page element.
+- An entry carries positions (its range, and the `reach` and `shows` its fill answered, since 2026-11-04 and 2026-11-07) and the `next` hint the previous fill answered, never geometry: `pageOf(pos)` is an index lookup over the chain, and sizes stay on the page element.
 - The names stay: `prosemirror-fragview`, `FragmentedView`; the BelType package is `prosemirror-beltype`.
 
 ## Where things are

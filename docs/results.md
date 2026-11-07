@@ -709,3 +709,18 @@ So the blink is seen when a picture first arrives on the face's page, not while 
 - Tiptap's renderers were read, not run.
 - Writing modes: sizes are read as width and height. A size is read to the pixel.
 - A `display: inline` face reports no size change, since `ResizeObserver` watches no inline box.
+
+# The assessment's fixes, 2026-11-07
+
+Three batches, each fix written as a failing test first; the entries are in the CHANGELOG under Unreleased. What they change in the records above:
+
+- **Foreign writes** are no longer text only. An element no render drew, added into an element a render drew, or an element a render drew taken away, outside a fill of that page, dirties the page, under the same budget and warning as a text write. A container's own elements, such as a page's chrome, are not taken for one. Still not seen: a write inside a shadow root, and a write into a page during that page's own fill.
+- **Late truth** dirties the entry before as well as its own, since that page's cut may have read the content that moved. The integration review's *Not done* listed this.
+- **An entry may carry `shows`**, what its fragment shows outside its range, answered by the fill, mapped as `from` and `to` are, and dirtied by a change there; `indexAt` gives such a position to the fragment that shows it when the owner by range does not.
+- **The hint arrives on every fill**, as `fill`'s fourth argument, not only through the factory.
+- **A rejected fill** is answered by `handleFillRejected`, and the contract no longer promises that a fill writes its DOM before its first wait.
+- **The props of phase 1's *Not built* list** now reached: every `handleDOMEvents` key, the click family (`handleClickOn`, `handleClick`, the double and triple forms), the paste transforms, a file-only paste reaching `handlePaste`, node decorations' classes and `ProseMirror-selectednode` on every shown piece. Widget decorations, drag and drop and the `attributes` prop are still not built.
+- **The view answers `root`, `props`, `isDestroyed` and `dragging`** as `EditorView` does, and `readSelection` no longer resolves a position past the document's end, which the input round's *Not done* named.
+- **A later page renumbers** after an earlier page absorbs an inserted or removed list item; a top-level `:nth-child` on a clean later page still reads stale, by choice.
+
+`npm test` 161 of 161 after the first batch, 176 after the second, 181 of 181 on `main` at `c715783`.
