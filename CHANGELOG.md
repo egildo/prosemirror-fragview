@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A caret at the edge of its textblock no longer deletes across the boundary. Backspace at the start of an `isolating` node (a table cell) poured it into the one before: the view applied the browser's target range, and `tr.delete` joins across any boundary. Now, as `prosemirror-view`'s `stopNativeHorizontalDelete` has it, Backspace and Delete at a textblock's edge are the commands' alone (`joinBackward`, `joinForward`), which honour `isolating`; without them nothing joins.
+
 Fixes from the integration review of 2026-11-04.
 
 - A `ReplaceAroundStep` (`setNodeMarkup`, a wrap, a lift) now dirties every fragment it covers. It used to dirty only the fragments holding its two tokens, so the middle of a list or section of three or more pages kept its old markup.
