@@ -664,3 +664,48 @@ Under `CiceroPage`, through a scratch copy of `scripts/specimen.mjs` aliased to 
 ## Not done
 
 A refill still replaces the control and loses its state, focus and value included, so editing text in the same fragment empties an input. A control whose own box changes height causes that refill: measured, a CJK composition in an `<input>` of automatic height grows it, the box answers `moved`, and the input is gone mid-composition. The test's inputs have a fixed height for this reason. Both are what the node-view ruling decides. A view placed inside a shadow root never has focus, under the old rule and the new, because `ownerDocument.activeElement` answers the shadow host; `prosemirror-view` asks its `root`, a shim this round leaves out. An input in a closed shadow root must stop propagation itself, and a control in a shadow root in a non-leaf's drawing still counts as the view's for the selection. `readSelection` still resolves a position a fragment not yet refilled answers, with no guard: read, not measured, and the same on `main`. `y-prosemirror` was read, not run against the view. Only Chromium was run.
+
+# Leaf node views
+
+Built 2026-11-07 on the ruling that a leaf node type may have a node view and any other may not. The code is `src/faces.js`, with the stand-in in `src/slice-renderer.js`; the investigation and the spec are in BelType's `.claude/plans/node-views-fragview/`.
+
+## The wrapper
+
+The spec left the stand-in's wrapper to be settled, since an `inline-block` had collapsed a `width: 50%` image. Measured under a real `CiceroPage` in Chromium 153, a document of 8 paragraphs and 8 leaves on a 400 by 300 page, the chain of cuts for each shape against no wrapper at all:
+
+| Leaf drawn as | `block` or `inline` wrapper | `inline-block` wrapper | `display: contents` |
+| :--- | :--- | :--- | :--- |
+| A fixed block image | same chain | same chain | another chain, one page fewer |
+| A `width: 50%` block image, a `width: 10%` inline one | same chain | another chain, the inline image 2 px wide instead of 36 | another chain, one page fewer |
+
+`display: contents` loses the leaf because Cicero's block walk skips such a box and all it holds. So the wrapper is `display: block` around a block and `display: inline` around an inline node, and the size is pinned on the drawing inside it, since an inline box takes none. One shape differs from no wrapper: a block leaf drawn as a bare inline-level element, such as a default `<img>`, where the wrapper makes it a line of its own. A block leaf's `toDOM` should draw a block-level box.
+
+## Under a real page
+
+Six faced leaves holding an iframe and an input, on `CiceroPage`, with `moveBefore` in Chromium 153:
+
+- The chain equals the chain of the same document with no node views, and after two edits it equals a fresh chain of the final document.
+- An edit on the face's page and an insertion that moves the face to the next page keep the same element: the iframe's written document, no `load`, the input's value and focus. Six made, none destroyed, no warning.
+
+This ran from a scratch harness with fragview's source linked in (`measure6.mjs` beside the spec), since `prosemirror-beltype`'s pin stands before this branch. The test the spec owes in that package waits for the pin to move.
+
+## The blink
+
+A face leaves its page while the page fills. How often that shows was the open question.
+
+- With no image still loading, the face is out for 5 ms on a small page, and no frame paints in that time: none of 35 frames sampled.
+- When the page holds an image that has not loaded yet, the fill waits for it, and the face is gone for that wait: 217 ms and 14 frames with a picture served in 200 ms. A picture already loaded in this document costs nothing, even served `no-store`, since Blink's image memory cache answers.
+
+So the blink is seen when a picture first arrives on the face's page, not while typing. A door in the page's `setContent` that keeps a node already among its children would remove it; it is not built.
+
+## The numbers
+
+`npm test` 152 of 152, 30 of them the new `test/faces.test.js`. The scripts `compose`, `pointer`, `scroll`, `copy` and `atoms` report every act as expected.
+
+## Not done
+
+- A `<video>` with a real source across `moveBefore`: headless gave no stream.
+- Safari and Firefox. Where `moveBefore` is missing the face moves by `appendChild` and loses its state; the fallback is tested by deleting the method in Chromium.
+- Tiptap's renderers were read, not run.
+- Writing modes: sizes are read as width and height. A size is read to the pixel.
+- A `display: inline` face reports no size change, since `ResizeObserver` watches no inline box.

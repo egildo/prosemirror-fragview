@@ -24,6 +24,8 @@
  *
  * A node type whose spec says `unshown: true` (the studio's whitespace and comment leaves between blocks) is drawn as nothing: it keeps its positions and has no DOM, as the studio's page serializer does.
  *
+ * A leaf with a node view is written as a STAND-IN (`standIn`): the wrapper is what the map records for the node, and its drawing has no entry.
+ *
  * Shallow siblings, the dressing words, the `value` and the stamps map to no position: the map is what it was without them.
  *
  * @packageDocumentation
@@ -39,6 +41,14 @@ export const TRAILING_BREAK = 'fragview-trailing-break';
 
 /** The attribute that carries a structured mark's instance on the element written for it. */
 export const INSTANCE_STAMP = 'data-txt-i';
+
+/** The attribute that marks a leaf's stand-in, the wrapper the view fills with its face. */
+export const FACE_STAMP = 'data-fragview-face';
+
+/**
+ * Which leaf types have a node view, and the size of a node's face once it has one: what the view tells the renderer.
+ * @typedef {{ has(type: import('prosemirror-model').NodeType): boolean, sizeOf(node: PMNode): { inline: number, block: number } | null }} Faces
+ */
 
 /**
  * The attribute the renderer marks elements with, and the six words it writes there. A paginator whose CSS reads these marks passes its own; a partial registry takes the rest from `DEFAULT_WORDS`.
@@ -116,8 +126,9 @@ const serializers = new WeakMap();
 /**
  * The slice renderer that writes the words of `words`, a registry or part of one: the view builds one from its `words` prop and hands it to every fill.
  * @param {Partial<Words>} [words]
+ * @param {Faces} [faces] Which leaf types have a node view; such a leaf is written as a stand-in.
  */
-export function sliceRenderer(words) {
+export function sliceRenderer(words, faces) {
   const full = registry(words);
   /**
    * Render the slice of `doc` from `from` to `to` (to the end when `to` is null) with the schema's `DOMSerializer`, and record the position map.
@@ -127,7 +138,7 @@ export function sliceRenderer(words) {
    * @param {Document} [document] The document to create nodes in; the global one when omitted.
    * @returns {RenderedSlice}
    */
-  return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document);
+  return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document, faces);
 }
 
 /** The slice renderer of the default registry. */
@@ -139,9 +150,10 @@ export const renderSlice = sliceRenderer();
  * @param {number} from
  * @param {number | null} to
  * @param {Document} document
+ * @param {Faces} [faces]
  * @returns {RenderedSlice}
  */
-function render(words, doc, from, to, document) {
+function render(words, doc, from, to, document, faces) {
   const end = to ?? doc.content.size;
   const schema = doc.type.schema;
   let base = serializers.get(schema);
@@ -219,6 +231,11 @@ function render(words, doc, from, to, document) {
       }
     }
     cursor = start + node.nodeSize;
+    if (faces?.has(node.type) && dom.nodeType === 1) {
+      const wrapper = standIn(document, /** @type {HTMLElement} */ (dom), node, faces);
+      positions.set(wrapper, span);
+      return wrapper;
+    }
     positions.set(dom, span);
     return dom;
   };
@@ -306,6 +323,32 @@ function render(words, doc, from, to, document) {
     if (last) span.end = last.end;
   }
   return { fragment, positions, from: opened, to: end };
+}
+
+/**
+ * The stand-in of a leaf with a node view: a wrapper around what `toDOM` draws, which the position map records for the node and the view later fills with the face.
+ *
+ * @remarks
+ * The wrapper is the plainest box of its level, `display: block` around a block and `display: inline` around an inline node, because anything else moves what it wraps. Measured 2026-11-07 under a real paged-media engine's page: these two cut a document where no wrapper cuts it, a `width: 50%` image included; an `inline-block` collapses a percentage to nothing, and the engine's block walk skips a `display: contents` box and all it holds, so its page lost the leaf's height. The one exception is a block leaf drawn as an inline-level element: alone in its block, it is a line of its own there, which it is not when bare, so a block leaf's `toDOM` should draw a block-level box.
+ *
+ * Once the node has a face, the drawing is pinned to the face's border box, so the cut is made against what the page will show; an inline drawing is made `inline-block` for it, since an inline box takes no size.
+ * @param {Document} document
+ * @param {HTMLElement} dom
+ * @param {PMNode} node
+ * @param {Faces} faces
+ */
+function standIn(document, dom, node, faces) {
+  const wrapper = document.createElement(node.isInline ? 'span' : 'div');
+  wrapper.setAttribute(FACE_STAMP, '');
+  wrapper.setAttribute('contenteditable', 'false');
+  wrapper.style.display = node.isInline ? 'inline' : 'block';
+  const box = faces.sizeOf(node);
+  if (box) {
+    Object.assign(dom.style, { boxSizing: 'border-box', inlineSize: box.inline + 'px', blockSize: box.block + 'px' });
+    if (node.isInline) dom.style.display = 'inline-block';
+  }
+  wrapper.appendChild(dom);
+  return wrapper;
 }
 
 /**

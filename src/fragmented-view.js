@@ -10,7 +10,7 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root, and a node view's `stopEvent` answers for its element.
  *
  * The selection. The model's selection is the truth, and the view stands down from the browser's while focus is outside the root or on an element inside it that keeps its own input (`ownsSelection`), so a control focused inside a page keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is the view's as the root is. `hasFocus()` itself is `prosemirror-view`'s rule, the root and nothing else. The selection is painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
@@ -22,7 +22,9 @@
 
 Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
  *
- * What the view does not do yet, besides the above: node views, `handleClick` and its kin, drag and drop (both halves are refused), `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
+ * Node views. A leaf node type may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the page that holds the node, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's is refused by name at the prop.
+ *
+ * What the view does not do yet, besides the above: block node views, mark views, `handleClick` and its kin, drag and drop (both halves are refused), `transformPasted` and its kin, the `attributes` prop, and bidirectional text in `endOfTextblock`.
  *
  * @packageDocumentation
  */
@@ -32,6 +34,7 @@ import { DOMParser as PMDOMParser, DOMSerializer, Fragment, Slice } from 'prosem
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
 import { sliceRenderer, openedAt } from './slice-renderer.js';
+import { Faces } from './faces.js';
 
 /** @import { EditorState, Transaction, Plugin, PluginView } from 'prosemirror-state' */
 /** @import { Node as PMNode } from 'prosemirror-model' */
@@ -259,10 +262,13 @@ export class FragmentedView {
   constructor(place, props) {
     /** @type {FragmentedViewProps} */
     this._props = props;
-    /** The slice renderer every fill is handed, for the `words` prop. @type {SliceRenderer} */
-    this.render = sliceRenderer(props.words);
     /** @type {EditorState} */
     this.state = withFragments(props.state);
+    /** The leaf node views. */
+    this.faces = new Faces(this);
+    this.faces.build();
+    /** The slice renderer every fill is handed, for the `words` prop. @type {SliceRenderer} */
+    this.render = sliceRenderer(props.words, this.faces);
     /** The root element holding the fragments; it is the editing host, created in the place's document. Every node and range after it is made in `this.dom.ownerDocument`, the document it lives in once placed. */
     this.dom = (place && typeof place !== 'function' ? place.ownerDocument : document).createElement('div');
     this.dom.className = 'fragview';
@@ -396,20 +402,25 @@ export class FragmentedView {
   updateState(state) {
     const prev = this.state;
     this.state = withFragments(state);
+    const stale = this.faces.build();
     this.update(prev);
+    if (stale) this.invalidate();
   }
 
   /**
-   * Merge props, as `EditorView.setProps` does. A new `containers` or `words` invalidates the chain, since a fragment rendered by the old factory or with the old words is stale.
+   * Merge props, as `EditorView.setProps` does. A new `containers`, `words` or `nodeViews` invalidates the chain, since a fragment rendered by the old factory, with the old words or the old stand-ins is stale.
    * @param {Partial<FragmentedViewProps>} props
    */
   setProps(props) {
     const old = this._props;
     this._props = { ...old, ...props };
-    if ('words' in props && props.words !== old.words) this.render = sliceRenderer(props.words);
-    const stale = ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
+    if ('words' in props && props.words !== old.words) this.render = sliceRenderer(props.words, this.faces);
+    let stale = ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
     if (props.state) this.updateState(props.state);
-    else if (!stale) this.update(this.state);
+    else {
+      stale = this.faces.build() || stale;
+      if (!stale) this.update(this.state);
+    }
     if (stale) this.invalidate();
   }
 
@@ -617,6 +628,8 @@ export class FragmentedView {
       else if (!container && isNear(i) && !entry.dirty && (firstDirty < 0 || i < firstDirty)) this.fill(entry);
     });
     if (firstDirty >= 0 && firstDirty <= last) this.fill(entries[firstDirty]);
+    if (this.filling.size === 0) this.faces.sweep();
+    this.faces.select();
   }
 
   /**
@@ -626,6 +639,7 @@ export class FragmentedView {
    * @param {boolean} keep
    */
   unbuild(key, container, keep) {
+    this.faces.park(key);
     container.release();
     this.containers.delete(key);
     this.filledFrom.delete(key);
@@ -672,6 +686,7 @@ export class FragmentedView {
     this.filledFrom.set(entry.key, entry.from);
     this.fillCount.set(entry.key, (this.fillCount.get(entry.key) ?? 0) + 1);
     const asked = entry.asked;
+    this.faces.park(entry.key);
     container.fill(doc, entry.from, this.render).then(({ to, next, reach }) => {
       if (this.containers.get(entry.key) !== container) return; // released since, by an invalidation or a destroy: its answer is stale
       const mine = this.filling.get(entry.key);
@@ -682,6 +697,7 @@ export class FragmentedView {
       if (at < 0 || entries[at].from !== entry.from) return;
       // Asked again while it flew, with the document the same: this answer may be older than what was asked.
       if (entries[at].asked !== asked) { this.refresh(); return; }
+      this.faces.place(entry.key, container);
       const hintMoved = JSON.stringify(this.hints.get(entry.key)) !== JSON.stringify(next);
       this.hints.set(entry.key, next);
       this.boxHeight = container.dom.offsetHeight;
@@ -1075,12 +1091,14 @@ export class FragmentedView {
   // ---- Input ----
 
   /**
-   * Whether an event belongs to an element drawn inside a page and not to the view, as `eventBelongsToView` decides in `prosemirror-view`; neither `handleDOMEvents` nor the view's own handler sees it. It is, when it comes from a form control or from inside one (a plain `toDOM` has no other way to say so), or from an editing host nested in a leaf's drawing. An element with any other input of its own stops propagation at its own root, which needs no word from the view. The path sees through an open shadow root, where `event.target` is retargeted; a closed one must stop propagation itself. A node view's `stopEvent` would be asked here.
+   * Whether an event belongs to an element drawn inside a page and not to the view, as `eventBelongsToView` decides in `prosemirror-view`; neither `handleDOMEvents` nor the view's own handler sees it. It is, when it comes from a form control or from inside one (a plain `toDOM` has no other way to say so), or from an editing host nested in a leaf's drawing. An element with any other input of its own stops propagation at its own root, which needs no word from the view. The path sees through an open shadow root, where `event.target` is retargeted; a closed one must stop propagation itself. A node view's `stopEvent` answers first for what stands in its element, as it does there.
    * @param {Event} event
    */
   ownedInside(event) {
     const path = /** @type {any[]} */ (event.composedPath());
     const inside = path.slice(0, path.indexOf(this.dom));
+    const face = inside.map((node) => this.faces.byDom.get(node)).find(Boolean);
+    if (face?.view.stopEvent) return face.view.stopEvent(event) === true;
     return inside.some((node) => CONTROLS.has(node.nodeName)) || (!!inside[0]?.isContentEditable && this.leafAround(/** @type {globalThis.Node} */ (event.target)) != null);
   }
 
@@ -1436,8 +1454,10 @@ export class FragmentedView {
     if (this.foreign.doc !== doc) this.foreign = { doc, counts: new Map(), warned: this.foreign.warned };
     const keys = new Set();
     for (const record of records) {
-      if (record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3)) continue;
-      if (this.leafAround(record.target) != null) continue;
+      const face = this.faces.around(record.target);
+      if (face) { if (face.view.ignoreMutation?.(record) !== false) continue; }
+      else if (record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3)) continue;
+      else if (this.leafAround(record.target) != null) continue;
       for (const [key, container] of this.containers) {
         if (!container.dom.contains(record.target)) continue;
         const count = this.foreign.counts.get(key) ?? 0;
@@ -1462,6 +1482,7 @@ export class FragmentedView {
     for (const container of this.containers.values()) container.release();
     this.observer?.disconnect();
     this.foreignObserver.disconnect();
+    this.faces.destroy();
     const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
     for (const name of this.highlightNames) highlights?.delete(name);
     highlights?.delete(SELECTION_HIGHLIGHT);
