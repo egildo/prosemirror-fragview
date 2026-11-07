@@ -14,7 +14,7 @@
  *
  * The selection. The model's selection is the truth, and the view stands down from the browser's while focus is outside the root or on an element inside it that keeps its own input (`ownsSelection`), so a control focused inside a page keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is the view's as the root is. `hasFocus()` itself is `prosemirror-view`'s rule, the root and nothing else. The selection is painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click that no handler takes is left to the browser.
  *
- * Foreign writes. The model is the truth and no input is left to the browser's DOM editing, but `beforeinput` is not the only way into the DOM: `execCommand`, a writing assistant, a text expander, a handler that takes an event without preventing it. A write that keeps the height moves no observer, and would stay on screen with the model not holding it, to be lost at the next save. So a `MutationObserver` watches the fragments, and a text node changed, added or removed outside a composition dirties its fragment, which is drawn again from the model; nothing is read back. A leaf's own drawing is outside this: it holds none of the document's text, and a custom element in one may render what it likes. The view's own fills write whole elements and are not taken for such a write, and the container's contract says so. A writer that answers every redraw (a translator) stops being answered after `FOREIGN_BUDGET` per entry and per document, with one warning. The root also carries the opt-outs those writers honour, `translate="no"` and Grammarly's and LanguageTool's attributes, so most never write; a host that wants one of them back removes its attribute from `view.dom`.
+ * Foreign writes. The model is the truth and no input is left to the browser's DOM editing, but `beforeinput` is not the only way into the DOM: `execCommand`, a writing assistant, a text expander, a handler that takes an event without preventing it. A write that keeps the height moves no observer, and would stay on screen with the model not holding it, to be lost at the next save. So a `MutationObserver` watches the fragments, and a text node changed, added or removed outside a composition dirties its fragment, which is drawn again from the model; nothing is read back. So does a whole element, outside a fill of its fragment: one that no render drew added into one a render drew (`execCommand('insertHTML')`, an expander's span), or one a render drew taken away (an extension removing a block). The renderer handed to every fill keeps the elements it draws, which is how a stranger's are told from the fills' own; a container's own elements, a page's chrome, are neither, so a container writes them when it likes. A leaf's own drawing is outside this: it holds none of the document's text, and a custom element in one may render what it likes. A shadow root is not observed, so a write inside one stays. The view's own fills write whole elements while they fly and are not taken for such a write, and the container's contract says so. A writer that answers every redraw (a translator) stops being answered after `FOREIGN_BUDGET` per entry and per document, with one warning. The root also carries the opt-outs those writers honour, `translate="no"` and Grammarly's and LanguageTool's attributes, so most never write; a host that wants one of them back removes its attribute from `view.dom`.
  *
  * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
@@ -269,7 +269,7 @@ export class FragmentedView {
     this.faces = new Faces(this);
     this.faces.build();
     /** The slice renderer every fill is handed, for the `words` prop. @type {SliceRenderer} */
-    this.render = sliceRenderer(props.words, this.faces);
+    this.render = this.drawing(sliceRenderer(props.words, this.faces));
     /** The root element holding the fragments; it is the editing host, created in the place's document. Every node and range after it is made in `this.dom.ownerDocument`, the document it lives in once placed. */
     this.dom = (place && typeof place !== 'function' ? place.ownerDocument : document).createElement('div');
     this.dom.className = 'fragview';
@@ -422,7 +422,7 @@ export class FragmentedView {
     const old = this._props;
     this._props = { ...old, ...props };
     if ('nodeViews' in props) try { this.faces.build(); } catch (error) { this._props = old; throw error; }
-    if ('words' in props && props.words !== old.words) this.render = sliceRenderer(props.words, this.faces);
+    if ('words' in props && props.words !== old.words) this.render = this.drawing(sliceRenderer(props.words, this.faces));
     let stale = ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
     if (props.state) this.updateState(props.state);
     else {
@@ -697,8 +697,12 @@ export class FragmentedView {
     const index = entries.findIndex((e) => e.key === entry.key);
     const before = entries[index - 1];
     const container = this._props.containers(index, before && this.hints.get(before.key), entries);
+    // The entry before is dirtied too, as an engine restarts one page earlier: its cut may have read this fragment's first content (a kept block, a widow), which has changed height.
     container.moved.addEventListener('moved', () => {
-      if (this.containers.get(entry.key) === container && !this.destroyed) this.dispatch(dirtied(this.state.tr, entry.key));
+      if (this.containers.get(entry.key) !== container || this.destroyed) return;
+      const entries = this.entries;
+      const before = entries[entries.findIndex((e) => e.key === entry.key) - 1];
+      this.dispatch(dirtied(this.state.tr, before ? [before.key, entry.key] : entry.key));
     });
     this.containers.set(entry.key, container);
     const placeholder = this.placeholders.get(entry.key);
@@ -1584,7 +1588,35 @@ export class FragmentedView {
   }
 
   /**
-   * Dirty the fragments whose text a writer outside the model changed (see "Foreign writes" above).
+   * The renderer every fill is handed, which keeps every element it draws in `drawn`, so an element a writer outside the model adds or takes away is told from the fills' own.
+   * @param {SliceRenderer} render
+   * @returns {SliceRenderer}
+   */
+  drawing(render) {
+    /** Every element a render has drawn. @type {WeakSet<Element>} */
+    this.drawn ??= new WeakSet();
+    return (...args) => {
+      const rendered = render(...args);
+      for (const el of rendered.fragment.querySelectorAll('*')) this.drawn.add(el);
+      return rendered;
+    };
+  }
+
+  /**
+   * Whether a record of whole elements is a writer's outside the model: outside a fill of its fragment, an element that no render drew added into one a render drew, or an element a render drew taken away. The container's own elements (a page's chrome) are neither, so a container may write them when it likes.
+   * @param {MutationRecord} record
+   * @param {number} key
+   */
+  strange(record, key) {
+    if (this.filling.has(key)) return false;
+    const drawn = /** @type {WeakSet<Element>} */ (this.drawn);
+    const element = (/** @type {globalThis.Node} */ node) => node.nodeType === 1;
+    return (drawn.has(/** @type {Element} */ (record.target)) && [...record.addedNodes].some((node) => element(node) && !drawn.has(/** @type {Element} */ (node))))
+      || [...record.removedNodes].some((node) => element(node) && drawn.has(/** @type {Element} */ (node)));
+  }
+
+  /**
+   * Dirty the fragments whose text or drawn elements a writer outside the model changed (see "Foreign writes" above).
    * @param {MutationRecord[]} records
    */
   onMutations(records) {
@@ -1594,11 +1626,12 @@ export class FragmentedView {
     const keys = new Set();
     for (const record of records) {
       const face = this.faces.around(record.target);
+      const elements = record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3);
       if (face) { if (face.view.ignoreMutation?.(record) !== false) continue; }
-      else if (record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3)) continue;
       else if (this.leafAround(record.target) != null) continue;
       for (const [key, container] of this.containers) {
         if (!container.dom.contains(record.target)) continue;
+        if (!face && elements && !this.strange(record, key)) break;
         const count = this.foreign.counts.get(key) ?? 0;
         if (count < FOREIGN_BUDGET) keys.add(key);
         else if (!this.foreign.warned) { this.foreign.warned = true; console.warn('prosemirror-fragview: something keeps writing into a fragment after it is drawn from the model; its writes are left on screen.'); }
