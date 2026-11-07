@@ -95,3 +95,14 @@ test('an image that grows at the top of a page cuts the page before it again, as
   assert.equal(r.lateImage.itself, 1);
   assert.equal(r.lateImage.before, 1);
 });
+
+test('a fill that answers what it shows outside its range is refilled by a mark or a same-length replacement there, and a caret there is its own', () => {
+  assert.deepEqual(r.shows.shows, { from: 5, to: null });
+  assert.equal(r.shows.indexInRun, 1, 'the run the second box shows maps to it');
+  assert.equal(r.shows.indexBefore, 0);
+  assert.equal(r.shows.indexAfterRun, 0, 'a position the first box shows stays the first box\'s');
+  assert.equal(r.shows.markDirtied, true);
+  assert.ok(r.shows.markRefills >= 1);
+  assert.equal(r.shows.replaceDirtied, true);
+  assert.ok(r.shows.replaceRefills >= 1);
+});

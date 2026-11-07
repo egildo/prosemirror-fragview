@@ -83,6 +83,7 @@ export async function run() {
   results.ordinal = await absorbedBefore();
   results.rejected = await rejectedFill();
   results.lateImage = await lateImageAtTop();
+  results.shows = await showsOutside();
   return results;
 }
 
@@ -360,6 +361,43 @@ async function lateImageAtTop() {
   await new Promise((r) => setTimeout(r, 30));
   await settled(view);
   const out = { pages: view.entries.length, before: view.fillCount.get(first) - before[0], itself: view.fillCount.get(second) - before[1] };
+  view.destroy();
+  return out;
+}
+
+/**
+ * The second box answers that it shows a run lying inside the first box's range, as a page after a cut through a row shows an earlier item's rest, and the first box says it does not show that run. A mark there and a same-length replacement there refill the second box, and a caret there belongs to it; a position the first box shows stays the first's.
+ */
+async function showsOutside() {
+  const body = 'A long enough run of words for a second box to hold the rest of it and more '.repeat(12);
+  const state = EditorState.create({ doc: doc(p(body)) });
+  const run = { from: 5, to: 15 };
+  let made = 0;
+  const view = new FragmentedView(document.body, { state, containers: () => {
+    const box = new OverflowBox({ width: 300, height: 100 });
+    const fill = box.fill.bind(box);
+    const pointAt = box.pointAt.bind(box);
+    const index = made++;
+    if (index === 0) box.pointAt = (pos) => (pos >= run.from && pos < run.to ? null : pointAt(pos));
+    if (index === 1) {
+      box.fill = async (...args) => ({ ...(await fill(...args)), shows: { from: run.from, to: null } });
+      box.pointAt = (pos) => (pos >= run.from && pos < run.to ? { node: box.dom, offset: 0 } : pointAt(pos));
+    }
+    return box;
+  } });
+  await settled(view);
+  const [, second] = view.entries;
+  const out = { shows: second.shows ?? null, indexInRun: view.indexAt(run.from + 2), indexBefore: view.indexAt(run.from - 2), indexAfterRun: view.indexAt(run.to + 2) };
+  let fills = view.fillCount.get(second.key);
+  view.dispatch(view.state.tr.addMark(run.from + 1, run.from + 4, view.state.schema.marks.em.create()));
+  out.markDirtied = view.entries[1].dirty;
+  await settled(view);
+  out.markRefills = view.fillCount.get(second.key) - fills;
+  fills = view.fillCount.get(second.key);
+  view.dispatch(view.state.tr.insertText('XYZ', run.from + 1, run.from + 4));
+  out.replaceDirtied = view.entries[1].dirty;
+  await settled(view);
+  out.replaceRefills = view.fillCount.get(second.key) - fills;
   view.destroy();
   return out;
 }

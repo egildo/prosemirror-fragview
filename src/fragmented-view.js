@@ -379,7 +379,7 @@ export class FragmentedView {
   }
 
   /**
-   * The index of the entry that shows `pos`, by the rule of `fragmentAt`, or −1. A cut belongs to the entry after it, and so do the positions that open the nodes the cut is the first position of (from `openedAt` of the cut, exclusive), since the entry before shows none of those nodes.
+   * The index of the entry that shows `pos`, by the rule of `fragmentAt`, or −1. A cut belongs to the entry after it, and so do the positions that open the nodes the cut is the first position of (from `openedAt` of the cut, exclusive), since the entry before shows none of those nodes. Where the entry that owns `pos` by range is built and does not show it, the first other entry whose fill answered `shows` over it and whose container does show it takes it (a row item's rest, drawn on the page after the one that owns its positions).
    * @param {number} pos
    */
   indexAt(pos) {
@@ -388,7 +388,9 @@ export class FragmentedView {
     if (at < 0) return all.findIndex((e) => e.to === pos);
     const to = all[at].to;
     if (to != null && at + 1 < all.length && pos > openedAt(this.state.doc, to)) at++;
-    return at;
+    if (!all.some((e) => e.shows) || !this.containers.has(all[at].key) || this.containerPoint(all[at], pos)) return at;
+    const other = all.findIndex((e, i) => i !== at && e.shows && pos >= e.shows.from && (e.shows.to == null || pos < e.shows.to) && this.containerPoint(e, pos));
+    return other < 0 ? at : other;
   }
 
   /** @returns {ReadonlyArray<Entry>} */
@@ -730,7 +732,7 @@ export class FragmentedView {
     this.faces.park(entry.key);
     // The hint the fragment before answered, handed to every fill and not to the factory alone, so a container refilled after that hint moved cuts under the new one.
     const before = this.entries[this.entries.findIndex((e) => e.key === entry.key) - 1];
-    const answered = (/** @type {import('./fragmentainer.js').FillResult} */ { to, next, reach }) => {
+    const answered = (/** @type {import('./fragmentainer.js').FillResult} */ { to, next, reach, shows }) => {
       if (this.containers.get(entry.key) !== container) return; // released since, by an invalidation or a destroy: its answer is stale
       const mine = this.filling.get(entry.key);
       if (mine?.doc === doc && mine.from === entry.from) this.filling.delete(entry.key);
@@ -747,7 +749,7 @@ export class FragmentedView {
       // A container may write its DOM after the wait (a page the engine cuts), so the answer of the fragment that holds the head draws the browser's selection again.
       if (this.entries[this.indexAt(this.state.selection.head)]?.key === entry.key) this.drawnFill = null;
       let tr = null;
-      if (entries[at].dirty || entries[at].to !== to || entries[at].reach !== reach) tr = refilled(this.state.tr, entry.key, to, reach);
+      if (entries[at].dirty || entries[at].to !== to || entries[at].reach !== reach || JSON.stringify(entries[at].shows) !== JSON.stringify(shows)) tr = refilled(this.state.tr, entry.key, to, reach, shows);
       if (to != null && at === entries.length - 1) tr = appended(tr ?? this.state.tr, to);
       // The next fragment was cut under the hint this answer replaces, and an equal `to` would leave it clean.
       const after = entries[at + 1];
