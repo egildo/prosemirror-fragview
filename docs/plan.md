@@ -122,5 +122,5 @@ Answered 2026-10-24, in the round that produced [*the engine knows no view*](../
 
 - The studio's present orchestrator, which this generalizes: `src/positions.js` (geometry both ways over Cicero's pages), `src/patching.js` (a transaction as a Cicero patch), `src/input.js`, `src/selection.js`, `src/caret.js`, `src/clipboard.js`, `src/collab/`.
 - The generic schema the renderer builds from: `src/schema-generic.js`, [notes/generic-schema-results.md](generic-schema-results.md).
-- The engine's side of the seam, as it stands: `../beltype/packages/engine-cicero/src/stonehand.js`, `chase.js`, `driver.js`, `root.js`; its decision records in `../beltype/.claude/decisions/cicero/`.
+- The engine's side of the seam, as it stands: `../BelType/cicero/src/stonehand.ts`, `chase.ts`, `driver.ts`, `root.ts`; its decision records in `../BelType/decisions/cicero/`.
 - The canon: Houdini Layout API (break tokens in and out, unshipped); Chromium's break tokens (a path plus an inline offset; a ProseMirror position is that token as one integer with a mapping); Lexical and Slate (a view of their own over contenteditable); CodeMirror 6 (the viewport and height map, the text-level read-back); the CSS Custom Highlight API.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+The harness stands on its own.
+
+- The generic schema the harness and the phase 3 scripts parse with is now `harness/schema-generic.js`, copied from the old studio. `BELTYPE_STUDIO` is gone, so a clean clone runs every script. The file is exported as `prosemirror-fragview/schema-generic` for `prosemirror-beltype`'s measurement. It is no part of the view's API.
+
 Leaf node views, by the ruling of 2026-11-07.
 
 - A `nodeViews` prop in `prosemirror-view`'s shape, for leaf node types only. The host's element is shown once, in the page that holds the node, and keeps its state across refills and across a move to another page, by `moveBefore`. `update`, `destroy`, `selectNode`, `deselectNode`, `stopEvent`, `ignoreMutation` and `getPos` hold their meanings.

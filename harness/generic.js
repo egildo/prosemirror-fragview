@@ -1,5 +1,5 @@
 /**
- * The harness's generic-schema mode, `?schema=generic&marks=structured|nodes` (phase 3): the studio's generic schema, imported from the linked dev dependency, and its lab document, copied into `fixtures/schema-lab/`.
+ * The harness's generic-schema mode, `?schema=generic&marks=structured|nodes` (phase 3): the studio's generic schema (`schema-generic.js`) and its lab document, copied into `fixtures/schema-lab/`.
  *
  * @remarks
  * The lab is laid out in an iframe under its own sheets, off screen, because structured marks read the source's computed style to decide which inline element can be a mark (the studio's `boxReason`): the parse takes the iframe's body as the laid-out source. The same sheets are returned for the harness page to adopt, so the fragments are set as the lab is. `marks=nodes` is the schema with every inline element a node (`buildSchema({ marks: false })`); `structured`, the default, is the studio's structured marks.
@@ -7,7 +7,7 @@
  * @packageDocumentation
  */
 
-import * as g from 'beltype-studio-experiment/src/schema-generic.js';
+import * as g from './schema-generic.js';
 import typeCss from './fixtures/schema-lab/styles/type.css?raw';
 import pageCss from './fixtures/schema-lab/styles/page.css?raw';
 

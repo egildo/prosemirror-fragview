@@ -18,10 +18,12 @@
   },
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./schema-generic": "./harness/schema-generic.js"
   },
   "files": [
     "src",
+    "harness/schema-generic.js",
     "docs/plan.md",
     "README.md"
   ],
