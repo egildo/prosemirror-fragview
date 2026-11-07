@@ -4,7 +4,7 @@
  * @remarks
  * Constructed as `EditorView` is, with two more props: `containers`, the `ContainerFactory` the view asks for each fragmentainer, and `words`, the words registry of the slice renderer it hands every fill (`sliceRenderer(words)`, built once; this package's own words when omitted). The plugin and the containers never see the registry: a container receives the renderer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
  *
- * Rendering. After every state the view fills the first dirty entry, and only that one: a `fill` that writes its DOM before its first wait (`OverflowBox` does) is rendered inside `updateState`, one that writes after a wait (a page an engine cuts) is painted and has the selection drawn again when its answer arrives, and when its promise settles the view dispatches the `refilled` transaction. A fill that rejects is answered by the `handleFillRejected` prop, `(view, error, container, from)`, which may return a fill result, or a promise of one, to stand for it; unanswered, the error is raised apart and the entry stays dirty until the next update fills it again, so the fragments after it wait. That transaction is the ripple: an entry whose `to` and hint land where they were leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it; one whose hint alone moved marks the next entry dirty, since it was cut under the old hint, and every fill is handed the hint before it as its fourth argument, so the refill cuts under the new one. A hint is compared by its JSON, so a fragmentainer keeps positions out of it or relative, or a shift alone counts as a change. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range.
+ * Rendering. After every state the view fills the first dirty entry, and only that one: a `fill` that writes its DOM before its first wait (`OverflowBox` does) is rendered inside `updateState`, one that writes after a wait (a page an engine cuts) is painted and has the selection drawn again when its answer arrives, and when its promise settles the view dispatches the `refilled` transaction. A fill that rejects is answered by the `handleFillRejected` prop, `(view, error, container, from)`, which may return a fill result, or a promise of one, to stand for it; unanswered, the error is raised apart and the entry stays dirty until the next update fills it again, so the fragments after it wait. That transaction is the ripple: an entry whose `to` and hint land where they were leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it; one whose hint alone moved marks the next entry dirty, since it was cut under the old hint, and every fill is handed the hint before it as its fourth argument, so the refill cuts under the new one. A hint is compared by its JSON, so a fragmentainer keeps positions out of it or relative, or a shift alone counts as a change. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range. The ripple keeps pace with the reader: an entry is filled at once when it is the first, the head's or one before it, or when the fragment before it starts above the foot of the viewport (the window's, clipped by every scrolling ancestor), so the pages in view and one more are filled before the next paint; the rest is filled in idle slices of `SLICE_MS`, each taken within `SLICE_DEADLINE_MS` when the browser offers no idle time, and an input ends the slice it falls in. While a slice is awaited `rippling` is true, so a reads loop that finds a dirty entry and no fill in flight tells a ripple paused from one stopped short; parked faces are not swept while it is.
  *
  * Invalidation. `invalidate()` says the conditions every fill was made under have changed (a page size, a stylesheet, a face that arrived late): every built container is released and its element removed, every placeholder and hint dropped, and every entry marked dirty by a `dirtied` transaction with no key, so the next update asks the factory for new containers and refills the chain from the first. The dirtiness goes through the plugin as every other chain change does, outside the history like the refills; the containers are the view's and are released on the view alone. The entries keep their keys and their ranges, which the ripple corrects. `setProps` invalidates when it is given a new `containers` or `words`. `redraw(from, to)` is the narrow form, for a rendering that reads something outside the node: only the entries that show the range are dirtied, in the containers they have.
  *
@@ -69,6 +69,12 @@ const OPT_OUTS = [['translate', 'no'], ['data-gramm', 'false'], ['data-gramm_edi
 
 /** The form controls, which keep their own input wherever they are drawn. */
 const CONTROLS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
+
+/** The milliseconds of one idle slice of the ripple past the pages in view. */
+const SLICE_MS = 10;
+
+/** The longest the ripple waits for an idle slice before it takes one anyway. */
+const SLICE_DEADLINE_MS = 50;
 
 const INPUTS = ['keydown', 'mousedown', 'touchstart', 'beforeinput', 'compositionstart', 'cut', 'paste', 'dragstart'];
 
@@ -300,6 +306,9 @@ export class FragmentedView {
     this.scheduled = false;
     /** The fill in flight per entry, so one state is not filled twice. A `dirtied` that names the entry while it flies waits for it, and the fill is made again: `asked` tells. @type {Map<number, { doc: PMNode, from: number }>} */
     this.filling = new Map();
+    /** The idle slice the ripple waits for past the pages in view, and when the running slice ends. @type {number | null} */
+    this.idle = null;
+    this.sliceEnd = 0;
     /** The browser is composing; nothing is rendered until it ends. */
     this.composing = false;
     /** A transaction asked for the selection to be scrolled into view and the chain has yet to settle: 'ask' before `handleScrollToSelection` has been asked, 'settle' after. @type {'ask' | 'settle' | null} */
@@ -347,7 +356,7 @@ export class FragmentedView {
       this.handlers[type] = (e) => { if (!this.ownedInside(e)) handler(e); };
       this.dom.addEventListener(type, this.handlers[type]);
     }
-    this.countInput = (/** @type {Event} */ e) => { this.inputs++; if (e.type === 'mousedown' || e.type === 'touchstart') this.dropped = false; };
+    this.countInput = (/** @type {Event} */ e) => { this.inputs++; this.sliceEnd = 0; if (e.type === 'mousedown' || e.type === 'touchstart') this.dropped = false; };
     for (const type of INPUTS) this.dom.addEventListener(type, this.countInput, true);
     this.onSelectionChange = () => { if (this.ownsSelection()) this.noteDrop() || this.readSelection(); };
     this.dom.ownerDocument.addEventListener('selectionchange', this.onSelectionChange);
@@ -666,9 +675,44 @@ export class FragmentedView {
       // A clean entry before the first dirty one starts where it says, so it can be built on its own.
       else if (!container && isNear(i) && !entry.dirty && (firstDirty < 0 || i < firstDirty)) this.fill(entry);
     });
-    if (firstDirty >= 0 && firstDirty <= last) this.fill(entries[firstDirty]);
-    if (this.filling.size === 0) this.faces.sweep();
+    if (firstDirty >= 0 && firstDirty <= last) {
+      if (performance.now() < this.sliceEnd || this.inView(firstDirty)) this.fill(entries[firstDirty]);
+      else this.later();
+    }
+    if (this.filling.size === 0 && !this.rippling) this.faces.sweep();
     this.faces.select();
+  }
+
+  /** Whether the ripple waits for an idle slice to fill on: the pages in view are filled, the rest is not yet. A reads loop that finds a dirty entry, no fill in flight and this false has found the chain stopped short. */
+  get rippling() {
+    return this.idle != null;
+  }
+
+  /**
+   * Whether the entry at `index` is filled before the next paint: the first, the head's or one before it, or one whose fragment before it starts above the foot of the viewport (the window's, clipped by every scrolling ancestor), so the pages in view and one more are filled at once.
+   * @param {number} index
+   */
+  inView(index) {
+    if (index === 0 || index <= this.indexAt(this.state.selection.head)) return true;
+    const win = /** @type {Window} */ (this.dom.ownerDocument.defaultView);
+    let foot = win.innerHeight;
+    for (let el = this.dom.parentElement; el; el = el.parentElement) if (win.getComputedStyle(el).overflowY !== 'visible') foot = Math.min(foot, el.getBoundingClientRect().bottom);
+    const before = this.dom.children[index - 1];
+    return !before || before.getBoundingClientRect().top < foot;
+  }
+
+  /** Fill on in the next idle slice, `SLICE_MS` long, which input ends. */
+  later() {
+    if (this.idle != null) return;
+    const win = /** @type {any} */ (this.dom.ownerDocument.defaultView);
+    const go = () => {
+      this.idle = null;
+      if (this.destroyed) return;
+      this.sliceEnd = performance.now() + SLICE_MS;
+      this.refresh();
+    };
+    // The deadline: an idle callback can wait for seconds while the root holds focus (measured 2026-11-07 in the harness: none in 3 s, then 488 ms).
+    this.idle = win.requestIdleCallback ? win.requestIdleCallback(go, { timeout: SLICE_DEADLINE_MS }) : win.setTimeout(go, 0);
   }
 
   /**

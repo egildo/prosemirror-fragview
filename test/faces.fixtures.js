@@ -67,7 +67,7 @@ const settled = () => {
     let calm = 0;
     const tick = () => {
       if (!view) return resolve(undefined);
-      calm = view.filling.size === 0 && (view.windowPolicy.build === 'near' || !view.entries.some((e) => e.dirty)) ? calm + 1 : 0;
+      calm = view.filling.size === 0 && !view.rippling && (view.windowPolicy.build === 'near' || !view.entries.some((e) => e.dirty)) ? calm + 1 : 0;
       if (calm > 3) return resolve(undefined);
       if (performance.now() - started > 5000) return reject(new Error('the chain did not settle'));
       requestAnimationFrame(tick);
