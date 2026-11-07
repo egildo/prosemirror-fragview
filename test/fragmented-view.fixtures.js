@@ -153,11 +153,15 @@ async function answeredReach() {
 /** A refill that answers the same `to` under another hint: the next fragment was cut under the old one, so it is filled again, and a same hint ends the ripple. */
 async function changedHint() {
   let hint = { carried: 1 };
+  /** The hint each fill of the second box was handed. @type {any[]} */
+  const handed = [];
+  let made = 0;
   const body = 'A long enough run of words for a second box to hold the rest of it and more '.repeat(12);
   const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p(body)) }), containers: () => {
     const box = new OverflowBox({ width: 300, height: 100 });
     const fill = box.fill.bind(box);
-    box.fill = async (...args) => { const a = await fill(...args); return a.to == null ? a : { ...a, next: hint }; };
+    const index = made++;
+    box.fill = async (...args) => { if (index === 1) handed.push(args[3]); const a = await fill(...args); return a.to == null ? a : { ...a, next: hint }; };
     return box;
   } });
   await settled(view);
@@ -172,6 +176,7 @@ async function changedHint() {
   const out = { same: await round() };
   hint = { carried: 2 };
   out.changed = await round();
+  out.handed = handed.map((h) => h?.carried ?? null);
   view.destroy();
   return out;
 }

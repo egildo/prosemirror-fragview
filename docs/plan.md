@@ -18,8 +18,9 @@ interface Fragmentainer {
    * Render the slice of `doc` from `from` under my geometry and decide where I end.
    * `to` is the position my content stops at, `null` when everything from `from` fit.
    * `next` is a hint about the container that should follow (a named page, a blank page); the basic box gives none.
+   * `hint` is the one the fragment before me answered, the latest on every refill, so I cut under it and not only under the one I was made with.
    */
-  fill(doc: Node, from: number, render: SliceRenderer): Promise<{ to: number | null; next?: ContainerHint }>;
+  fill(doc: Node, from: number, render: SliceRenderer, hint?: ContainerHint): Promise<{ to: number | null; next?: ContainerHint }>;
   /** Registration, both ways, inside me: the DOM point a position is shown at (null when I do not show it), and the position a DOM point stands for. */
   pointAt(pos: number): { node: globalThis.Node; offset: number } | null;
   posAt(node: globalThis.Node, offset: number): number | null;
