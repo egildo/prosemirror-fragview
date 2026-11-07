@@ -77,3 +77,9 @@ test('an item inserted before a cut that the earlier page absorbs renumbers the 
   assert.deepEqual(r.ordinal.after, r.ordinal.fresh);
   assert.deepEqual(r.ordinal.fresh, { value: '5', away: 4 });
 });
+
+test('a fill that rejects is answered by handleFillRejected, and the pages after it are cut as a fresh view cuts them', () => {
+  assert.deepEqual(r.rejected.asked, [['the engine fell over', true]]);
+  assert.deepEqual(r.rejected.cuts, r.rejected.fresh);
+  assert.ok(r.rejected.cuts.length > 2, `${r.rejected.cuts.length} boxes`);
+});
