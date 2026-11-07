@@ -106,3 +106,7 @@ test('a fill that answers what it shows outside its range is refilled by a mark 
   assert.equal(r.shows.replaceDirtied, true);
   assert.ok(r.shows.replaceRefills >= 1);
 });
+
+test('a delete with no target range deletes one character, or the selection, and nothing at a textblock\'s edge', () => {
+  assert.deepEqual(r.emptyTarget, { backward: 'on 😀two', forward: 'one😀two', pairBackward: 'one two', pairForward: 'one two', edge: 'one 😀two', range: 'o 😀two' });
+});

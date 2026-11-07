@@ -12,7 +12,7 @@ Phases 1, 2, 3 and 4a are built. Phase 1 is the package, and the proof that a `F
 
 ## Browsers
 
-Editing, selection and composition are verified in Chromium only: the harness and every suite run headless Chromium, and nothing here is measured in Firefox or WebKit. Elsewhere the view loads and works as an editor, unverified. Android is unsupported for now: there a composition over an existing word duplicates text in the document and Backspace skips the keymaps, so a host on Android should mount a plain `EditorView` instead.
+Editing, selection and composition are verified in Chromium only: the harness and every suite run headless Chromium, and nothing here is measured in Firefox or WebKit. Elsewhere the view loads and works as an editor, unverified. Android is unsupported for now: there a composition over an existing word duplicates text in the document and Backspace skips the keymaps, so a host on Android should mount a plain `EditorView` instead. Where a browser sends a delete with no target range, the view takes one step of the model's: the character, the surrogate pair or the inline node beside the caret, or the selection.
 
 ## Node views
 

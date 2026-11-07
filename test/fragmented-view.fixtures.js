@@ -5,7 +5,7 @@
  */
 
 import { doc, p, ol, li, img } from 'prosemirror-test-builder';
-import { EditorState } from 'prosemirror-state';
+import { EditorState, TextSelection } from 'prosemirror-state';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
 import { FragmentedView, OverflowBox, AWAY_SHEET, CONTINUATION_SHEET, openedAt } from '../src/index.js';
@@ -77,6 +77,7 @@ export async function run() {
   view.destroy();
   results.readOnly = readOnly();
   results.overFill = await redrawDuringFill();
+  results.emptyTarget = await emptyTargetDeletes();
   results.reach = await answeredReach();
   results.foreign = await foreignWrites();
   results.hint = await changedHint();
@@ -99,6 +100,25 @@ function readOnly() {
     return unchanged;
   };
   return { readOnly: press(false), editable: press(true) };
+}
+
+/**
+ * A delete whose `beforeinput` carries no target range, as a synthetic event does and as a browser outside Chromium may: each case's paragraph text after it, from a caret or a selection given as model positions in `one 😀two`.
+ */
+async function emptyTargetDeletes() {
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [name, inputType, anchor, head = anchor] of /** @type {[string, string, number, number?][]} */ ([
+    ['backward', 'deleteContentBackward', 4], ['forward', 'deleteContentForward', 4], ['pairBackward', 'deleteContentBackward', 7], ['pairForward', 'deleteContentForward', 5], ['edge', 'deleteContentBackward', 1], ['range', 'deleteContentForward', 2, 4],
+  ])) {
+    const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p('one 😀two'), p('after')) }), containers: () => new OverflowBox({ width: 300, height: 200 }) });
+    await settled(view);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, head)));
+    view.dom.dispatchEvent(new InputEvent('beforeinput', { inputType, bubbles: true, cancelable: true }));
+    out[name] = view.state.doc.firstChild?.textContent ?? '';
+    view.destroy();
+  }
+  return out;
 }
 
 /** A box whose fill waits on a gate the fixture opens, so something can arrive while it is in flight. */

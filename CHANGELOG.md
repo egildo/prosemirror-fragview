@@ -26,6 +26,7 @@ The harness stands on its own.
 Browser scope, by the ruling of 2026-11-07.
 
 - The README says which browsers are verified: editing, selection and composition in Chromium only. Elsewhere the view loads and works as an editor, unverified. Android is unsupported for now, and a host there should mount a plain `EditorView`.
+- A Backspace or Delete whose `beforeinput` carries no target range now deletes one step: the character beside the caret, a surrogate pair whole, an inline node, or the selection. It used to delete nothing, silently. Chromium always sends the range; a synthetic event and, unmeasured, other browsers may not. A caret at a textblock's edge still deletes nothing, and the join stays the keymap's.
 
 Leaf node views, by the ruling of 2026-11-07.
 
