@@ -8,7 +8,7 @@
  *
  * A step touches an entry when its changed range meets the entry's range (for a step whose map moves nothing, a mark or an attribute, the range where the documents before and after it differ), and also when it lands in the first word after the entry's `to`: the line before a cut ended there because that word did not fit, so a change to the word can let it fit and move the cut, though the word is shown by the next fragment. The word is the run of non-space characters at `to`; ponytail: break opportunities read as spaces only, so a cut in CJK text or after a hyphen dirties too little, Intl.Segmenter's line granularity when it matters.
  *
- * A fragmentainer whose decision read further than that first word (a widow rule reads the whole paragraph, a kept block the block after it) answers how far with its fill's `reach`; the entry keeps it, mapped as `to` is, and a change up to it dirties the entry. A `reach` never counts for less than the first word. A `ReplaceAroundStep` (`setNodeMarkup`, a wrap, a lift) maps only the tokens it replaces, yet what lies between them is drawn inside the new markup, so it touches its whole range.
+ * A fragmentainer whose decision read further than that first word (a widow rule reads the whole paragraph, a kept block the block after it) answers how far with its fill's `reach`; the entry keeps it, mapped as `to` is, and a change up to it dirties the entry. A `reach` never counts for less than the first word. A `ReplaceAroundStep` (`setNodeMarkup`, a wrap, a lift) maps only the tokens it replaces, yet what lies between them is drawn inside the new markup, so it touches its whole range. A step wholly before `from` touches the entry when it inserts or removes a child of one of its divided ancestors before the one it opens in: the renderer writes those children as away siblings and numbers an opened list from them, so a page that absorbed the edit leaves the next one's ordinal and sibling selectors stale. The document's own children are left out (ponytail: a top-level `:nth-child` reads stale on a clean later page, since counting them would refill every later page on every new paragraph; a ruling if a paginator's CSS reads it).
  *
  * An entry whose `from` reaches the end of the document (no cursor position after it) is dropped, and the entry before it becomes the last, running to the end and dirty.
  *
@@ -99,12 +99,26 @@ function mapEntry(entry, tr) {
       const start = before.content.findDiffStart(after.content);
       if (start != null) touch(start, Math.max(start + 1, /** @type {{ a: number }} */ (before.content.findDiffEnd(after.content)).a));
     }
+    const counted = dirty ? '' : indicesAt(tr.docs[i], from);
     from = map.map(from, -1);
+    if (!dirty && indicesAt(tr.docs[i + 1] ?? tr.doc, from) !== counted) dirty = true;
     if (to != null) to = map.map(to, 1);
     if (answered != null) answered = map.map(answered, 1);
   });
   if (from === entry.from && to === entry.to && dirty === entry.dirty && answered === entry.reach) return entry;
   return answered == null ? { ...entry, from, to, dirty } : { ...entry, from, to, dirty, reach: answered };
+}
+
+/**
+ * The index of `pos` in each of its divided ancestors, the document and its textblock left out: what the renderer's away siblings and an opened list's ordinal are counted from.
+ * @param {PMNode} doc
+ * @param {number} pos
+ */
+function indicesAt(doc, pos) {
+  const $pos = doc.resolve(pos);
+  let out = '';
+  for (let d = 1; d < $pos.depth; d++) out += $pos.index(d) + ',';
+  return out;
 }
 
 /**

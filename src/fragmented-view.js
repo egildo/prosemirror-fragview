@@ -316,6 +316,8 @@ export class FragmentedView {
     this.onPointerUp = (/** @type {MouseEvent} */ e) => this.onMouseUp(e);
     this.editable = true;
     this.destroyed = false;
+    /** `EditorView.dragging`, which plugins read: always null, since the view takes no drag. @type {null} */
+    this.dragging = null;
     /** @type {[globalThis.Node | null, number, globalThis.Node | null, number] | null} */
     this.lastSelection = null;
     /** @type {Set<string>} */
@@ -402,7 +404,9 @@ export class FragmentedView {
   updateState(state) {
     const prev = this.state;
     this.state = withFragments(state);
-    const stale = this.faces.build();
+    let stale;
+    // A refused node view throws before the view takes the state: the model and the DOM stay together.
+    try { stale = this.faces.build(); } catch (error) { this.state = prev; throw error; }
     this.update(prev);
     if (stale) this.invalidate();
   }
@@ -414,6 +418,7 @@ export class FragmentedView {
   setProps(props) {
     const old = this._props;
     this._props = { ...old, ...props };
+    if ('nodeViews' in props) try { this.faces.build(); } catch (error) { this._props = old; throw error; }
     if ('words' in props && props.words !== old.words) this.render = sliceRenderer(props.words, this.faces);
     let stale = ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
     if (props.state) this.updateState(props.state);
@@ -463,9 +468,37 @@ export class FragmentedView {
     return undefined;
   }
 
-  /** Whether the editing host itself has focus, `prosemirror-view`'s rule. The view's own stand-down is `ownsSelection`. */
+  /** Whether the editing host itself has focus, `prosemirror-view`'s rule, asked of the root it lives in. The view's own stand-down is `ownsSelection`. */
   hasFocus() {
-    return this.dom.ownerDocument.activeElement === this.dom;
+    return this.root.activeElement === this.dom;
+  }
+
+  /**
+   * The document or shadow root the view lives in, as `EditorView.root` answers it; the view's own document while it is not placed.
+   * @returns {Document | ShadowRoot}
+   */
+  get root() {
+    const root = /** @type {any} */ (this.dom.getRootNode());
+    return root.nodeType === 9 || (root.nodeType === 11 && root.host) ? root : this.dom.ownerDocument;
+  }
+
+  /** `EditorView._root`, which plugins read for the root: here the same answer as `root`. */
+  get _root() {
+    return this.root;
+  }
+
+  /**
+   * The props, the direct ones with the current state, as `EditorView.props` answers them.
+   * @returns {FragmentedViewProps}
+   */
+  get props() {
+    if (this._props.state !== this.state) this._props = { ...this._props, state: this.state };
+    return this._props;
+  }
+
+  /** Whether `destroy()` has run, as `EditorView.isDestroyed` answers it. */
+  get isDestroyed() {
+    return this.docView == null;
   }
 
   /**
@@ -478,7 +511,7 @@ export class FragmentedView {
 
   /** Whether the browser's selection is the view's to read and write: focus on the root, or on something inside it that holds the document's text (a mark or a block with a `tabindex`, an editing host around a content hole). Narrower than `hasFocus()`'s complement: only an element that keeps its own input makes the view stand down. */
   ownsSelection() {
-    const active = this.dom.ownerDocument.activeElement;
+    const active = this.root.activeElement;
     return active === this.dom || (!!active && this.dom.contains(active) && !this.keepsInput(active));
   }
 
@@ -1007,8 +1040,9 @@ export class FragmentedView {
     const drawn = this.drawnAnchor;
     const anchor = drawn && drawn.node === domSelection.anchorNode && drawn.offset === domSelection.anchorOffset ? drawn.pos : this.posAt(domSelection.anchorNode, domSelection.anchorOffset);
     const head = this.posAt(/** @type {globalThis.Node} */ (domSelection.focusNode), domSelection.focusOffset);
-    if (anchor == null || head == null) return;
     const { selection, doc } = this.state;
+    // A fragment not yet refilled answers the positions of the document it was filled from, which may lie past this one's end.
+    if (anchor == null || head == null || anchor > doc.content.size || head > doc.content.size) return;
     if (selection.anchor === anchor && selection.head === head) return;
     this.dispatch(this.state.tr.setSelection(TextSelection.between(doc.resolve(anchor), doc.resolve(head))));
   }
@@ -1341,7 +1375,8 @@ export class FragmentedView {
     const [range] = event.getTargetRanges();
     if (!range) return null;
     const from = this.posAt(range.startContainer, range.startOffset), to = this.posAt(range.endContainer, range.endOffset);
-    return from == null || to == null ? null : { from: Math.min(from, to), to: Math.max(from, to) };
+    // A fragment not yet refilled answers the positions of the document it was filled from, which may lie past this one's end.
+    return from == null || to == null || Math.max(from, to) > this.state.doc.content.size ? null : { from: Math.min(from, to), to: Math.max(from, to) };
   }
 
   /**

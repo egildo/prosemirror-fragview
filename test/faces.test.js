@@ -25,6 +25,11 @@ test('a node view for anything but a leaf is refused by name', async () => {
   }
 });
 
+test('a refused node view arriving with a reconfigured state throws before the view takes the state, which stands with its DOM', async () => {
+  await fresh('one');
+  assert.deepEqual(await page.evaluate(() => window.fixture.refusedAtRuntime()), { refusal: 'RangeError', sameState: true, sameDom: true });
+});
+
 test('a name the schema lacks is passed over, as prosemirror-view does', async () => {
   assert.equal(await page.evaluate(() => window.fixture.construct({ nothing: () => ({ dom: document.createElement('div') }) })), null);
 });

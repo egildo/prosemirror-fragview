@@ -276,6 +276,8 @@ test('a page not yet refilled answers old positions: the walk does not throw, an
   assert.ok(out.stale > out.size, `${out.stale} past ${out.size}`);
   assert.equal(out.leaf, null);
   assert.ok(out.coords === null || typeof out.coords === 'object', String(out.coords));
+  assert.equal(out.read, null, 'the selection read back from the stale page throws nothing');
+  assert.equal(out.target, null, 'a target range on the stale page answers none');
   assert.deepEqual(out.errors, []);
   assert.equal(out.shown.replace(/\s+/g, ''), out.model.replace(/\s+/g, ''));
 });
@@ -307,4 +309,8 @@ test('a foreign write into ordinary text beside a leaf is still drawn over from 
 test('docView is truthy while the view lives and null after destroy', async () => {
   await fresh('text');
   assert.deepEqual(await page.evaluate(() => window.fixture.docViewLife()), { alive: true, gone: null });
+});
+
+test('the view answers the members ecosystem plugins read at construction, and hasFocus asks the shadow root it lives in', async () => {
+  assert.deepEqual(await page.evaluate(() => window.fixture.members()), { root: true, aliased: true, focus: true, props: true, dragging: null, alive: false, destroyed: true, detached: true });
 });

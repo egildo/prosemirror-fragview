@@ -252,10 +252,16 @@ async function staleWindow() {
   const rect = /** @type {Element} */ (text.parentNode).getBoundingClientRect();
   const size = v.state.doc.content.size;
   v.dispatch(v.state.tr.delete(8, size - 2));
-  const out = { connected: text.isConnected, size: v.state.doc.content.size, stale: /** @type {any} */ (null), leaf: /** @type {any} */ (null), coords: /** @type {any} */ (null) };
+  const out = { connected: text.isConnected, size: v.state.doc.content.size, stale: /** @type {any} */ (null), leaf: /** @type {any} */ (null), coords: /** @type {any} */ (null), read: /** @type {any} */ (undefined), target: /** @type {any} */ (undefined) };
   out.stale = v.posAt(text, 0);
   try { out.leaf = v.leafAround(text); } catch (e) { out.leaf = String(e); }
   try { out.coords = v.posAtCoords({ left: rect.left + 2, top: rect.top + 5 }); } catch (e) { out.coords = String(e); }
+  // The browser's selection read back from the stale page, and an input's target range there.
+  v.focus();
+  document.getSelection()?.setBaseAndExtent(text, 0, text, 1);
+  try { v.readSelection(); out.read = null; } catch (e) { out.read = String(e); }
+  const range = new StaticRange({ startContainer: text, startOffset: 0, endContainer: text, endOffset: 1 });
+  out.target = v.targetRange(/** @type {any} */ ({ getTargetRanges: () => [range] }));
   text.data += ' written by a stranger';
   await new Promise((r) => setTimeout(r, 0));
   await quiet();
@@ -279,6 +285,22 @@ async function freshLong() {
   return view.entries.length;
 }
 
+/** The members `EditorView` has and an ecosystem plugin reads at construction, on a view inside an open shadow root, alive and destroyed. */
+function members() {
+  view?.destroy();
+  const host = document.body.appendChild(document.createElement('div'));
+  const shadow = host.attachShadow({ mode: 'open' });
+  const state = EditorState.create({ doc: docWith('text') });
+  const v = new FragmentedView(shadow, { state, containers: () => new OverflowBox({ width: 300 }) });
+  v.focus();
+  const next = v.state.apply(v.state.tr.insertText('x', 1));
+  v.updateState(next);
+  const out = { root: v.root === shadow, aliased: v._root === v.root, focus: v.hasFocus(), props: v.props.state === next && v.props.containers != null, dragging: v.dragging, alive: v.isDestroyed };
+  v.destroy();
+  host.remove();
+  return { ...out, destroyed: v.isDestroyed, detached: new FragmentedView(null, { state, containers: () => new OverflowBox() }).root === document };
+}
+
 /** `docView` while the view lives and after. */
 function docViewLife() {
   const v = /** @type {FragmentedView} */ (view);
@@ -289,4 +311,4 @@ function docViewLife() {
   return { alive, gone };
 }
 
-Object.assign(window, { fixture: { fresh, freshHolders, charOf, freshLong, staleWindow, read, select, pointInText, clipboard, selfWrites, atomTextWrite, foreignWrite, docViewLife, quiet } });
+Object.assign(window, { fixture: { fresh, freshHolders, charOf, freshLong, staleWindow, read, select, pointInText, clipboard, selfWrites, atomTextWrite, foreignWrite, docViewLife, members, quiet } });

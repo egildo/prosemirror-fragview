@@ -4,11 +4,11 @@
  * @packageDocumentation
  */
 
-import { doc, p } from 'prosemirror-test-builder';
+import { doc, p, ol, li } from 'prosemirror-test-builder';
 import { EditorState } from 'prosemirror-state';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
-import { FragmentedView, OverflowBox, AWAY_SHEET, CONTINUATION_SHEET } from '../src/index.js';
+import { FragmentedView, OverflowBox, AWAY_SHEET, CONTINUATION_SHEET, openedAt } from '../src/index.js';
 
 const words = 'A change of conditions dirties every entry and every container of the chain '.repeat(4).trim();
 const d = doc(...Array.from({ length: 12 }, (_, i) => p(`${i + 1}. ${words}`)));
@@ -80,6 +80,7 @@ export async function run() {
   results.reach = await answeredReach();
   results.foreign = await foreignWrites();
   results.hint = await changedHint();
+  results.ordinal = await absorbedBefore();
   return results;
 }
 
@@ -243,6 +244,41 @@ async function foreignWrites() {
   console.warn = warned;
   writer.disconnect();
   out.loop = { fills: count() - at, warnings };
+  view.destroy();
+  return out;
+}
+
+/** A box of no foot that cuts before the first text starting with `cut`: a forced break, so an edit before it is absorbed by the page and the cut stays where it was. */
+class ForcedBox extends OverflowBox {
+  /** @param {any} doc @param {number} from @param {any} render */
+  async fill(doc, from, render) {
+    let to = null;
+    doc.descendants((/** @type {any} */ node, /** @type {number} */ pos) => { if (to == null && pos > from && node.isText && node.text.startsWith('cut')) to = pos; });
+    this.show(render(doc, from, to == null ? null : openedAt(doc, to), this.content.ownerDocument));
+    this.to = to;
+    return { to };
+  }
+}
+
+/** A list cut by a forced break, and an item inserted before the cut, which the first page absorbs: the second page's ordinal and away siblings, against a fresh view's. */
+async function absorbedBefore() {
+  const make = (state) => new FragmentedView(document.body, { state, containers: () => new ForcedBox() });
+  /** The second page's first displayed item's `value`, and the count of the items put away before it. @param {FragmentedView} view */
+  const second = (view) => {
+    const ol = view.fragments[1].container.dom.querySelector('ol');
+    return { value: ol.querySelector('li:not([data-fragview~="away"])')?.getAttribute('value'), away: ol.querySelectorAll(':scope > [data-fragview~="away"]').length };
+  };
+  const d = doc(ol(li(p('one')), li(p('two')), li(p('three')), li(p('cut four')), li(p('five'))));
+  const view = make(EditorState.create({ doc: d }));
+  await settled(view);
+  const before = second(view);
+  view.dispatch(view.state.tr.insert(1, li(p('new'))));
+  await settled(view);
+  const after = second(view);
+  const fresh = make(view.state.reconfigure({ plugins: [] }));
+  await settled(fresh);
+  const out = { before, after, fresh: second(fresh) };
+  fresh.destroy();
   view.destroy();
   return out;
 }
