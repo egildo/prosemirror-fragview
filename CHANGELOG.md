@@ -13,6 +13,10 @@ Leaf node views, by the ruling of 2026-11-07.
 - A leaf with a node view is drawn in every copy as a stand-in: a wrapper around `toDOM`'s element, `display: block` or `display: inline`, marked `data-fragview-face`. `toDOM` stays what prints. `nodeDOM` answers the wrapper. A selector on the leaf's siblings sees the wrapper in the leaf's place.
 - `sliceRenderer(words, faces)` takes a second, optional argument, and `FACE_STAMP` is exported.
 
+A delete at a block's edge.
+
+- A caret at the edge of its textblock no longer deletes across the boundary. Backspace at the start of an `isolating` node (a table cell) poured it into the one before: the view applied the browser's target range, and `tr.delete` joins across any boundary. Now, as `prosemirror-view`'s `stopNativeHorizontalDelete` has it, Backspace and Delete at a textblock's edge are the commands' alone (`joinBackward`, `joinForward`), which honour `isolating`; without them nothing joins.
+
 Fixes from the integration review of 2026-11-04.
 
 - A `ReplaceAroundStep` (`setNodeMarkup`, a wrap, a lift) now dirties every fragment it covers. It used to dirty only the fragments holding its two tokens, so the middle of a list or section of three or more pages kept its old markup.
