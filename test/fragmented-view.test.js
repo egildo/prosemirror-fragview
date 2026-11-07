@@ -57,6 +57,12 @@ test('a foreign write at the same height is drawn over from the model, and the m
   for (const shown of [r.foreign.inPlace, r.foreign.execCommand, r.foreign.added, r.foreign.removed]) assert.equal(shown.replace(/\s+/g, ''), model.replace(/\s+/g, ''));
 });
 
+test('a foreign write of whole elements is drawn over from the model: insertHTML, an added span, a removed block', () => {
+  assert.equal(r.foreign.htmlWrote, true, 'insertHTML reached the DOM');
+  const model = r.foreign.modelText.replace(/\s+/g, '');
+  for (const shown of [r.foreign.insertHTML, r.foreign.elementAdded, r.foreign.blockRemoved]) assert.equal(shown.replace(/\s+/g, ''), model);
+});
+
 test('a writer that answers every redraw stops being answered, with one warning', () => {
   assert.ok(r.foreign.loop.fills <= 4, `${r.foreign.loop.fills} fills`);
   assert.equal(r.foreign.loop.warnings, 1);
@@ -82,4 +88,10 @@ test('a fill that rejects is answered by handleFillRejected, and the pages after
   assert.deepEqual(r.rejected.asked, [['the engine fell over', true]]);
   assert.deepEqual(r.rejected.cuts, r.rejected.fresh);
   assert.ok(r.rejected.cuts.length > 2, `${r.rejected.cuts.length} boxes`);
+});
+
+test('an image that grows at the top of a page cuts the page before it again, as well as its own', () => {
+  assert.equal(r.lateImage.pages, 2);
+  assert.equal(r.lateImage.itself, 1);
+  assert.equal(r.lateImage.before, 1);
 });

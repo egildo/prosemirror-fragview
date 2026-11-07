@@ -4,7 +4,7 @@
  * @packageDocumentation
  */
 
-import { doc, p, ol, li } from 'prosemirror-test-builder';
+import { doc, p, ol, li, img } from 'prosemirror-test-builder';
 import { EditorState } from 'prosemirror-state';
 import { keymap } from 'prosemirror-keymap';
 import { baseKeymap } from 'prosemirror-commands';
@@ -82,6 +82,7 @@ export async function run() {
   results.hint = await changedHint();
   results.ordinal = await absorbedBefore();
   results.rejected = await rejectedFill();
+  results.lateImage = await lateImageAtTop();
   return results;
 }
 
@@ -238,6 +239,27 @@ async function foreignWrites() {
   view.dispatch(view.state.tr.delete(1, 2));
   await quiet();
 
+  // Whole elements: execCommand's insertHTML, a span an extension adds, a block an extension removes. Each document is a new one, so the budget never runs out here.
+  const fresh = async () => { view.dispatch(view.state.tr.insertText('Y', 1)); await quiet(); view.dispatch(view.state.tr.delete(1, 2)); await quiet(); };
+  const first = view.dom.querySelector('p').firstChild;
+  view.focus();
+  selection.setBaseAndExtent(first, first.data.length, first, first.data.length);
+  view.dom.ownerDocument.execCommand('insertHTML', false, '<b>bold</b>');
+  out.htmlWrote = text().includes('bold');
+  await quiet();
+  out.insertHTML = text();
+  await fresh();
+  const span = view.dom.ownerDocument.createElement('span');
+  span.append('span');
+  view.dom.querySelector('p').append(span);
+  await quiet();
+  out.elementAdded = text();
+  await fresh();
+  view.dom.querySelectorAll('p')[1].remove();
+  await quiet();
+  out.blockRemoved = text();
+  await fresh();
+
   // A writer that answers every redraw with another write stops being answered: the budget, per entry and per document.
   at = count();
   const writer = new MutationObserver(() => { const n = view.dom.querySelector('p')?.firstChild; if (n && !n.data.endsWith('!')) n.data += '!'; });
@@ -308,6 +330,36 @@ async function rejectedFill() {
   });
   await settled(view);
   const out = { asked, cuts: cuts(view), fresh: await freshCuts(state, [300, 200]) };
+  view.destroy();
+  return out;
+}
+
+/** A box that cuts before the first image after its `from` and watches its height as `OverflowBox` does, so the image opens the next page. */
+class ImageBox extends OverflowBox {
+  /** @param {any} doc @param {number} from @param {any} render */
+  async fill(doc, from, render) {
+    let to = null;
+    doc.descendants((/** @type {any} */ node, /** @type {number} */ pos) => { if (to == null && node.type.name === 'image' && openedAt(doc, pos) > from) to = openedAt(doc, pos); });
+    this.show(render(doc, from, to, this.content.ownerDocument));
+    this.to = to;
+    this.filledHeight = this.content.getBoundingClientRect().height;
+    this.observer?.observe(this.content);
+    return { to };
+  }
+}
+
+/** Late truth at a page's top: the image that opens the second page grows after its fill, and the page before is cut again with it, since a cut there may move back. */
+async function lateImageAtTop() {
+  const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p('alpha beta'), p(img({ src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7' }), 'tail')) }), containers: () => new ImageBox({ width: 300, height: 400 }) });
+  await settled(view);
+  const [first, second] = view.entries.map((e) => e.key);
+  const before = [view.fillCount.get(first), view.fillCount.get(second)];
+  const moved = new Promise((resolve) => { view.containers.get(second).moved.addEventListener('moved', resolve); setTimeout(resolve, 500); });
+  view.containers.get(second).content.querySelector('img').style.height = '80px';
+  await moved;
+  await new Promise((r) => setTimeout(r, 30));
+  await settled(view);
+  const out = { pages: view.entries.length, before: view.fillCount.get(first) - before[0], itself: view.fillCount.get(second) - before[1] };
   view.destroy();
   return out;
 }
