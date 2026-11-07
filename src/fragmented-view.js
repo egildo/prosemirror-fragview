@@ -33,7 +33,7 @@ import { AllSelection, NodeSelection, Selection, TextSelection } from 'prosemirr
 import { DOMParser as PMDOMParser, DOMSerializer, Fragment, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
-import { sliceRenderer, openedAt, DEPTHS } from './slice-renderer.js';
+import { sliceRenderer, openedAt, DEPTHS, refuseMixedMarks } from './slice-renderer.js';
 import { Faces } from './faces.js';
 
 /** @import { EditorState, Transaction, Plugin, PluginView } from 'prosemirror-state' */
@@ -262,6 +262,7 @@ export class FragmentedView {
   constructor(place, props) {
     /** @type {FragmentedViewProps} */
     this._props = props;
+    refuseMixedMarks(props.state.schema);
     /** @type {EditorState} */
     this.state = withFragments(props.state);
     /** The leaf node views. */
