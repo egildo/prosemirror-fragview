@@ -83,3 +83,25 @@ export function run() {
     return { name, expected, actual, misses, outside, html };
   });
 }
+
+/** Whether `serializeFragment` still calls the two methods the renderer replaces on its instance, and what a view and a render do with a schema that mixes structured and ordinary marks. */
+export async function guards() {
+  const { DOMSerializer } = await import('prosemirror-model');
+  const { EditorState } = await import('prosemirror-state');
+  const { FragmentedView, OverflowBox } = await import('../src/index.js');
+  const serializer = DOMSerializer.fromSchema(marked);
+  const called = { serializeNodeInner: 0, serializeMark: 0 };
+  for (const name of /** @type {const} */ (['serializeNodeInner', 'serializeMark'])) {
+    const original = /** @type {any} */ (serializer)[name].bind(serializer);
+    /** @type {any} */ (serializer)[name] = (/** @type {any[]} */ ...args) => { called[name]++; return original(...args); };
+  }
+  serializer.serializeFragment(markedDoc.content, { document });
+  const mixed = new Schema({ nodes: marked.spec.nodes, marks: { em: markSpec('em'), strong: markSpec('strong'), code: { toDOM: () => ['code', 0] }, link: { toDOM: () => ['a', 0] } } });
+  const state = EditorState.create({ doc: mixed.nodes.doc.create(null, mixed.nodes.p.create(null, mixed.text('x'))) });
+  const refusal = (/** @type {() => void} */ f) => { try { f(); return null; } catch (error) { return { name: /** @type {Error} */ (error).name, message: /** @type {Error} */ (error).message }; } };
+  return {
+    called,
+    view: refusal(() => new FragmentedView(null, { state, containers: () => new OverflowBox({ width: 300, height: 200 }) })),
+    render: refusal(() => renderSlice(state.doc, 0, null)),
+  };
+}

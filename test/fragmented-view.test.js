@@ -67,8 +67,19 @@ test('a refill that keeps its to but changes its hint fills the next fragment, a
   assert.deepEqual(r.hint.changed.slice(0, 2), [1, 1], 'the changed hint reached the next fragment');
 });
 
+test('every fill is handed the hint the fragment before it answered, a refill the latest one', () => {
+  assert.equal(r.hint.handed[0], 1);
+  assert.equal(r.hint.handed.at(-1), 2);
+});
+
 test('an item inserted before a cut that the earlier page absorbs renumbers the later page, as a fresh view numbers it', () => {
   assert.deepEqual(r.ordinal.before, { value: '4', away: 3 });
   assert.deepEqual(r.ordinal.after, r.ordinal.fresh);
   assert.deepEqual(r.ordinal.fresh, { value: '5', away: 4 });
+});
+
+test('a fill that rejects is answered by handleFillRejected, and the pages after it are cut as a fresh view cuts them', () => {
+  assert.deepEqual(r.rejected.asked, [['the engine fell over', true]]);
+  assert.deepEqual(r.rejected.cuts, r.rejected.fresh);
+  assert.ok(r.rejected.cuts.length > 2, `${r.rejected.cuts.length} boxes`);
 });

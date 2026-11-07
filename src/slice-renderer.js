@@ -20,7 +20,7 @@
  *
  * ORDINALS. An `ol` the fragment opens shows its items from the live one, its earlier items `away` and so without boxes, so the first displayed `li` gets HTML's own `value` attribute, its ordinal by HTML's algorithm (§4.4.8: the list's `start`, else the count of its items when `reversed`, else 1; an earlier item's `value` resets the count; each item counts one, down when `reversed`), unless it carries a `value` of its own. A `reversed` list cut at the end holds fewer items than the source, and Chromium counts down from the items present, so its first item is numbered the same way.
  *
- * STRUCTURED MARKS. A mark type whose spec says `structured: true` carries `{ instance, parent }` among its attributes (the studio's generic schema, `buildSchema({ marks: 'structured' })`). For such marks the inline tree is rebuilt from each run's chain of instances, as the studio's own serializer does: adjacent runs sharing an instance share one element, the parent pointers fix the nesting, and ProseMirror's rank order is never used. Each element written for an instance carries `data-txt-i="<instance>"` (`INSTANCE_STAMP`), and so does an inline atom whose attributes carry an `instance` (the studio's empty inline), so a reparse can recover identity. A schema without structured marks is serialized as ProseMirror does, and stamps nothing.
+ * STRUCTURED MARKS. A mark type whose spec says `structured: true` carries `{ instance, parent }` among its attributes (the studio's generic schema, `buildSchema({ marks: 'structured' })`). A schema whose marks are not all structured or all ordinary is refused by name (`refuseMixedMarks`), by the view at construction and by the first render, since its ordinary marks would be lost. For such marks the inline tree is rebuilt from each run's chain of instances, as the studio's own serializer does: adjacent runs sharing an instance share one element, the parent pointers fix the nesting, and ProseMirror's rank order is never used. Each element written for an instance carries `data-txt-i="<instance>"` (`INSTANCE_STAMP`), and so does an inline atom whose attributes carry an `instance` (the studio's empty inline), so a reparse can recover identity. A schema without structured marks is serialized as ProseMirror does, and stamps nothing.
  *
  * A node type whose spec says `unshown: true` (the studio's whitespace and comment leaves between blocks) is drawn as nothing: it keeps its positions and has no DOM, as the studio's page serializer does.
  *
@@ -124,6 +124,18 @@ export function addWord(el, word, attribute = DEFAULT_WORDS.attribute) {
 const serializers = new WeakMap();
 
 /**
+ * Refuse a schema that mixes structured and ordinary marks: the inline tree of such a schema is rebuilt from the structured instances alone, so its ordinary marks would never be drawn.
+ * @param {Schema} schema
+ * @throws {RangeError} Naming both kinds of mark.
+ */
+export function refuseMixedMarks(schema) {
+  const all = Object.values(schema.marks), structured = all.filter((m) => m.spec.structured);
+  if (!structured.length || structured.length === all.length) return;
+  const names = (/** @type {typeof all} */ marks) => marks.map((m) => m.name).join(', ');
+  throw new RangeError(`prosemirror-fragview: the schema mixes structured marks (${names(structured)}) with ordinary ones (${names(all.filter((m) => !m.spec.structured))}); the slice renderer draws only the structured ones, so make every mark structured or none`);
+}
+
+/**
  * The slice renderer that writes the words of `words`, a registry or part of one: the view builds one from its `words` prop and hands it to every fill.
  * @param {Partial<Words>} [words]
  * @param {Faces} [faces] Which leaf types have a node view; such a leaf is written as a stand-in.
@@ -141,6 +153,9 @@ export function sliceRenderer(words, faces) {
   return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document, faces);
 }
 
+/** The depth in the document of the node every element the renderer wrote for a node stands for, for the view to find a node's pieces in the shown DOM (a node selection, a node decoration). A WeakMap, so a measuring copy let go is gone from it. @type {WeakMap<globalThis.Node, number>} */
+export const DEPTHS = new WeakMap();
+
 /** The slice renderer of the default registry. */
 export const renderSlice = sliceRenderer();
 
@@ -157,7 +172,10 @@ function render(words, doc, from, to, document, faces) {
   const end = to ?? doc.content.size;
   const schema = doc.type.schema;
   let base = serializers.get(schema);
-  if (!base) serializers.set(schema, (base = DOMSerializer.fromSchema(schema)));
+  if (!base) {
+    refuseMixedMarks(schema);
+    serializers.set(schema, (base = DOMSerializer.fromSchema(schema)));
+  }
   /** @type {WeakMap<globalThis.Node, Span>} */
   const positions = new WeakMap();
   const fragment = document.createDocumentFragment();
@@ -173,6 +191,8 @@ function render(words, doc, from, to, document, faces) {
   let cursor = from - slice.openStart;
   /** The depth of the last divided ancestor met on the way down the slice's open start. */
   let depth = 0;
+  /** The depth of the node being written. */
+  let level = 0;
   const add = (/** @type {globalThis.Node} */ el, /** @type {string} */ word) => addWord(/** @type {Element} */ (el), word, words.attribute);
 
   // One instance per render, so the cursor and the map are this render's alone.
@@ -200,6 +220,7 @@ function render(words, doc, from, to, document, faces) {
       return document.createDocumentFragment();
     }
     const { dom, contentDOM } = DOMSerializer.renderSpec(document, base.nodes[node.type.name](node), null, node.attrs);
+    const own = ++level;
     /** @type {Span} */
     const span = { start: clamp(start), end: clamp(start + node.nodeSize) };
     // Virtual positions: an ancestor opened at the start begins before what is shown, one cut at the end runs past it (its slice node closes after `end`).
@@ -231,12 +252,15 @@ function render(words, doc, from, to, document, faces) {
       }
     }
     cursor = start + node.nodeSize;
+    level = own - 1;
     if (faces?.has(node.type) && dom.nodeType === 1) {
       const wrapper = standIn(document, /** @type {HTMLElement} */ (dom), node, faces);
       positions.set(wrapper, span);
+      DEPTHS.set(wrapper, own);
       return wrapper;
     }
     positions.set(dom, span);
+    DEPTHS.set(dom, own);
     return dom;
   };
   if (structured) {

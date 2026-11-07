@@ -81,6 +81,7 @@ export async function run() {
   results.foreign = await foreignWrites();
   results.hint = await changedHint();
   results.ordinal = await absorbedBefore();
+  results.rejected = await rejectedFill();
   return results;
 }
 
@@ -153,11 +154,15 @@ async function answeredReach() {
 /** A refill that answers the same `to` under another hint: the next fragment was cut under the old one, so it is filled again, and a same hint ends the ripple. */
 async function changedHint() {
   let hint = { carried: 1 };
+  /** The hint each fill of the second box was handed. @type {any[]} */
+  const handed = [];
+  let made = 0;
   const body = 'A long enough run of words for a second box to hold the rest of it and more '.repeat(12);
   const view = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p(body)) }), containers: () => {
     const box = new OverflowBox({ width: 300, height: 100 });
     const fill = box.fill.bind(box);
-    box.fill = async (...args) => { const a = await fill(...args); return a.to == null ? a : { ...a, next: hint }; };
+    const index = made++;
+    box.fill = async (...args) => { if (index === 1) handed.push(args[3]); const a = await fill(...args); return a.to == null ? a : { ...a, next: hint }; };
     return box;
   } });
   await settled(view);
@@ -172,6 +177,7 @@ async function changedHint() {
   const out = { same: await round() };
   hint = { carried: 2 };
   out.changed = await round();
+  out.handed = handed.map((h) => h?.carried ?? null);
   view.destroy();
   return out;
 }
@@ -279,6 +285,29 @@ async function absorbedBefore() {
   await settled(fresh);
   const out = { before, after, fresh: second(fresh) };
   fresh.destroy();
+  view.destroy();
+  return out;
+}
+
+/** The second box's first fill rejects; `handleFillRejected` answers with the box filled again, and the chain goes on past it as a fresh view's does. */
+async function rejectedFill() {
+  const state = EditorState.create({ doc: d });
+  /** @type {any[]} */
+  const asked = [];
+  let made = 0;
+  const view = new FragmentedView(document.body, {
+    state,
+    containers: () => {
+      const box = new OverflowBox({ width: 300, height: 200 });
+      const fill = box.fill.bind(box);
+      let failed = made++ !== 1;
+      box.fill = (...args) => { if (!failed) { failed = true; return Promise.reject(new Error('the engine fell over')); } return fill(...args); };
+      return box;
+    },
+    handleFillRejected: (/** @type {any} */ v, /** @type {any} */ error, /** @type {any} */ container, /** @type {number} */ from) => { asked.push([error.message, v === view || v instanceof FragmentedView]); return container.fill(v.state.doc, from, v.render); },
+  });
+  await settled(view);
+  const out = { asked, cuts: cuts(view), fresh: await freshCuts(state, [300, 200]) };
   view.destroy();
   return out;
 }

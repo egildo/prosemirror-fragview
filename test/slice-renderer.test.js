@@ -51,3 +51,18 @@ test('the two sheets are functions of the registry, and the constants are the de
   assert.equal(continuationSheet(), CONTINUATION_SHEET);
   assert.ok(continuationSheet({ attribute: 'data-pager', split: 'cut' }).startsWith('[data-pager~="cut"]:not([data-pager~="start"]) {'));
 });
+
+test('serializeFragment calls the two methods the renderer replaces, so a prosemirror-model that renamed them fails here and not by an empty position map', async () => {
+  const r = await session.page.evaluate(async () => (await import('/test/slice-renderer.fixtures.js')).guards());
+  assert.ok(r.called.serializeNodeInner > 0, 'serializeNodeInner');
+  assert.ok(r.called.serializeMark > 0, 'serializeMark');
+});
+
+test('a schema mixing structured and ordinary marks is refused by name, by the view at construction and by a render', async () => {
+  const r = await session.page.evaluate(async () => (await import('/test/slice-renderer.fixtures.js')).guards());
+  for (const refusal of [r.view, r.render]) {
+    assert.equal(refusal?.name, 'RangeError');
+    assert.match(refusal.message, /em, strong/);
+    assert.match(refusal.message, /code, link/);
+  }
+});
