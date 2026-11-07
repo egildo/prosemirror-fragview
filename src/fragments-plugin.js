@@ -10,6 +10,8 @@
  *
  * A fragmentainer whose decision read further than that first word (a widow rule reads the whole paragraph, a kept block the block after it) answers how far with its fill's `reach`; the entry keeps it, mapped as `to` is, and a change up to it dirties the entry. A `reach` never counts for less than the first word. A `ReplaceAroundStep` (`setNodeMarkup`, a wrap, a lift) maps only the tokens it replaces, yet what lies between them is drawn inside the new markup, so it touches its whole range. A step wholly before `from` touches the entry when it inserts or removes a child of one of its divided ancestors before the one it opens in: the renderer writes those children as away siblings and numbers an opened list from them, so a page that absorbed the edit leaves the next one's ordinal and sibling selectors stale. The document's own children are left out (ponytail: a top-level `:nth-child` reads stale on a clean later page, since counting them would refill every later page on every new paragraph; a ruling if a paginator's CSS reads it).
  *
+ * A fragmentainer that shows positions outside its range (a page after a cut through a row shows an earlier item's rest, which lies below its `from`; a page that shows a box whole past its `to`) answers them with its fill's `shows`; the entry keeps it, its ends mapped as `from` and `to` are, and a change that touches it dirties the entry as one in its range does. Absent, the entry shows its range and nothing else.
+ *
  * An entry whose `from` reaches the end of the document (no cursor position after it) is dropped, and the entry before it becomes the last, running to the end and dirty.
  *
  * The view's refills are transactions too: `refilled` sets an entry's `to` and clears its `dirty`, `appended` adds the entry after the last, and `dirtied` marks an entry (or several) dirty with no step (late truth: a fragment's content changed height after its fill), or every entry when it names none (the view's invalidation: the conditions of every fill changed). `dirtied` also counts its asks in the entry's `asked`, because the document does not change: the view compares the count to know that a fill in flight began before the latest ask, and fills again. All go through a meta under `fragmentsKey`, and all mark the transaction `addToHistory: false`, so no refill is ever undone.
@@ -31,6 +33,7 @@ import { ReplaceAroundStep } from 'prosemirror-transform';
  * @property {number | null} to The position the fragment stops at, null when it runs to the end of the document.
  * @property {boolean} dirty A step touched the fragment's range since its last fill.
  * @property {number | null} [reach] The last position the fill's decision read, as it answered it, null for the end of the document; absent when it answered none, and the first word after `to` stands for it.
+ * @property {{ from: number, to: number | null }} [shows] What the fragment shows outside its range, as its fill answered it, `to` null for the end of the document; absent when it answered none.
  * @property {number} [asked] How many `dirtied` transactions have named the entry; absent before the first.
  */
 
@@ -41,7 +44,7 @@ import { ReplaceAroundStep } from 'prosemirror-transform';
 
 /**
  * @typedef {object} FragmentsMeta
- * @property {{ key: number, to: number | null, reach?: number | null }} [refilled]
+ * @property {{ key: number, to: number | null, reach?: number | null, shows?: { from: number, to: number | null } }} [refilled]
  * @property {{ from: number }} [appended]
  * @property {{ key: number | number[] | null }} [dirtied]
  */
@@ -62,7 +65,7 @@ export function fragmentsPlugin() {
         let entries = value.entries;
         if (tr.docChanged) entries = dropAtEnd(entries.map((entry) => mapEntry(entry, tr)), tr.doc);
         const meta = /** @type {FragmentsMeta | undefined} */ (tr.getMeta(fragmentsKey));
-        if (meta?.refilled) entries = refill(entries, meta.refilled.key, meta.refilled.to, meta.refilled.reach);
+        if (meta?.refilled) entries = refill(entries, meta.refilled.key, meta.refilled.to, meta.refilled.reach, meta.refilled.shows);
         if (meta?.appended) entries = [...entries, { key: Math.max(-1, ...entries.map((e) => e.key)) + 1, from: meta.appended.from, to: null, dirty: true }];
         if (meta?.dirtied) {
           const keys = meta.dirtied.key == null ? null : [meta.dirtied.key].flat();
@@ -81,14 +84,16 @@ export function fragmentsPlugin() {
  * @returns {Entry}
  */
 function mapEntry(entry, tr) {
-  let { from, to, dirty, reach: answered } = entry;
+  let { from, to, dirty, reach: answered, shows } = entry;
   tr.mapping.maps.forEach((map, i) => {
     const reach = to == null || answered === null ? null : Math.max(answered ?? 0, wordEnd(tr.docs[i], to));
     let mapped = false;
     const touch = (/** @type {number} */ oldStart, /** @type {number} */ oldEnd) => {
       // An insertion touches the range it lands in, ends included; a deletion or replacement touches what it overlaps; either touches the first word after the cut.
       const touched = oldStart === oldEnd ? oldStart >= from && (reach == null || oldStart <= reach) : oldEnd > from && (reach == null || oldStart < reach || oldStart === /** @type {number} */ (to));
-      if (touched) dirty = true;
+      // What the fragment shows outside its range is touched as its range is.
+      const shown = !!shows && (oldStart === oldEnd ? oldStart >= shows.from && (shows.to == null || oldStart <= shows.to) : oldEnd > shows.from && (shows.to == null || oldStart < shows.to));
+      if (touched || shown) dirty = true;
     };
     map.forEach((oldStart, oldEnd) => { mapped = true; touch(oldStart, oldEnd); });
     // A step that moves no position (a mark added or removed, an attribute set) has an empty map: the range it changed is read from the two documents.
@@ -104,9 +109,12 @@ function mapEntry(entry, tr) {
     if (!dirty && indicesAt(tr.docs[i + 1] ?? tr.doc, from) !== counted) dirty = true;
     if (to != null) to = map.map(to, 1);
     if (answered != null) answered = map.map(answered, 1);
+    if (shows) shows = { from: map.map(shows.from, -1), to: shows.to == null ? null : map.map(shows.to, 1) };
   });
-  if (from === entry.from && to === entry.to && dirty === entry.dirty && answered === entry.reach) return entry;
-  return answered == null ? { ...entry, from, to, dirty } : { ...entry, from, to, dirty, reach: answered };
+  const sameShows = shows === entry.shows || (!!shows && !!entry.shows && shows.from === entry.shows.from && shows.to === entry.shows.to);
+  if (from === entry.from && to === entry.to && dirty === entry.dirty && answered === entry.reach && sameShows) return entry;
+  const out = answered == null ? { ...entry, from, to, dirty } : { ...entry, from, to, dirty, reach: answered };
+  return sameShows ? out : { ...out, shows };
 }
 
 /**
@@ -148,18 +156,20 @@ function dropAtEnd(entries, doc) {
 }
 
 /**
- * Set an entry's `to` and `reach` and clear its `dirty`. The entry after it starts where it now stops, and is dirty when that moved it; when it now runs to the end, the entries after it are dropped.
+ * Set an entry's `to`, `reach` and `shows` and clear its `dirty`. The entry after it starts where it now stops, and is dirty when that moved it; when it now runs to the end, the entries after it are dropped.
  * @param {ReadonlyArray<Entry>} entries
  * @param {number} key
  * @param {number | null} to
  * @param {number | null} [reach]
+ * @param {{ from: number, to: number | null }} [shows]
  * @returns {ReadonlyArray<Entry>}
  */
-function refill(entries, key, to, reach) {
+function refill(entries, key, to, reach, shows) {
   const at = entries.findIndex((e) => e.key === key);
   if (at < 0) return entries;
   const result = entries.slice(0, at);
-  const { reach: _old, ...entry } = entries[at];
+  const { reach: _old, shows: _shown, ...rest } = entries[at];
+  const entry = shows ? { ...rest, shows } : rest;
   result.push(reach === undefined ? { ...entry, to, dirty: false } : { ...entry, to, reach, dirty: false });
   if (to == null) return result;
   const next = entries[at + 1];
@@ -181,10 +191,12 @@ function withMeta(tr, add) {
  * @param {number} key
  * @param {number | null} to
  * @param {number | null} [reach] How far the fill's decision read, when it answered that.
+ * @param {{ from: number, to: number | null }} [shows] What the fragment shows outside its range, when it answered that.
  * @returns {Transaction}
  */
-export function refilled(tr, key, to, reach) {
-  return withMeta(tr, { refilled: reach === undefined ? { key, to } : { key, to, reach } });
+export function refilled(tr, key, to, reach, shows) {
+  const refilled = reach === undefined ? { key, to } : { key, to, reach };
+  return withMeta(tr, { refilled: shows ? { ...refilled, shows } : refilled });
 }
 
 /**

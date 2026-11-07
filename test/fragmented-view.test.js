@@ -83,3 +83,14 @@ test('a fill that rejects is answered by handleFillRejected, and the pages after
   assert.deepEqual(r.rejected.cuts, r.rejected.fresh);
   assert.ok(r.rejected.cuts.length > 2, `${r.rejected.cuts.length} boxes`);
 });
+
+test('a fill that answers what it shows outside its range is refilled by a mark or a same-length replacement there, and a caret there is its own', () => {
+  assert.deepEqual(r.shows.shows, { from: 5, to: null });
+  assert.equal(r.shows.indexInRun, 1, 'the run the second box shows maps to it');
+  assert.equal(r.shows.indexBefore, 0);
+  assert.equal(r.shows.indexAfterRun, 0, 'a position the first box shows stays the first box\'s');
+  assert.equal(r.shows.markDirtied, true);
+  assert.ok(r.shows.markRefills >= 1);
+  assert.equal(r.shows.replaceDirtied, true);
+  assert.ok(r.shows.replaceRefills >= 1);
+});

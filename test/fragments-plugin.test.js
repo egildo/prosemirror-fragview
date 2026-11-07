@@ -193,3 +193,30 @@ test('an item inserted or removed before an entry in a list it opens in dirties 
   const typed = state.apply(state.tr.insertText('XY', state.doc.tag.a));
   assert.equal(entries(typed)[1].dirty, false);
 });
+
+test('a fill that answers what it shows outside its range is dirtied by a mark or a same-length replacement there, its range mapped like from and to', () => {
+  // The second entry shows a remainder that lies inside the first entry's range, as a page after a cut through a row shows an earlier item's rest.
+  const d = doc(p('one <s>two three<e> four'), p('<cut>five six'));
+  let state = EditorState.create({ doc: d, plugins: [fragmentsPlugin()] });
+  state = state.apply(appended(refilled(state.tr, 0, d.tag.cut), d.tag.cut));
+  state = state.apply(refilled(state.tr, 1, null, undefined, { from: d.tag.s, to: null }));
+  assert.deepEqual(entries(state)[1].shows, { from: d.tag.s, to: null });
+  const marked = state.apply(state.tr.addMark(d.tag.s, d.tag.s + 3, schema.marks.em.create()));
+  assert.deepEqual(entries(marked).map((e) => e.dirty), [true, true]);
+  const replaced = state.apply(state.tr.insertText('TWO', d.tag.s, d.tag.s + 3));
+  assert.deepEqual(entries(replaced).map((e) => e.dirty), [true, true]);
+  // Outside what it shows, the second entry stays clean, and an insert before moves both ends.
+  const before = state.apply(state.tr.insertText('XY', 1));
+  assert.deepEqual(entries(before).map((e) => e.dirty), [true, false]);
+  assert.deepEqual(entries(before)[1].shows, { from: d.tag.s + 2, to: null });
+  // A later fill that answers none drops it.
+  const plain = state.apply(refilled(state.tr, 1, null));
+  assert.equal('shows' in entries(plain)[1], false);
+});
+
+test('an entry with no shows behaves as before: a mark in the entry before leaves it clean', () => {
+  const d = doc(p('one <s>two three<e> four'), p('<cut>five six'));
+  const state = twoEntries(d);
+  const marked = state.apply(state.tr.addMark(d.tag.s, d.tag.s + 3, schema.marks.em.create()));
+  assert.deepEqual(entries(marked).map((e) => e.dirty), [true, false]);
+});

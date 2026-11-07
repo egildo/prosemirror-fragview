@@ -51,6 +51,7 @@
  * @typedef {object} FillResult
  * @property {number | null} to The position the fragmentainer's content stops at, null when everything from `from` fit.
  * @property {ContainerHint} [next] A hint about the container that should follow.
+ * @property {{ from: number, to: number | null }} [shows] A range from `from` to `to` (null for the end of the document) holding the positions the fragment shows outside its own range, which may cover that range too: a page after a cut through a row shows the rest of an earlier item, below its `from`; a page that shows a box whole past its `to`. A change there dirties the fragment, and a position there that the fragment owning it by range does not show (its `pointAt` answers null) is this fragment's. Omitted, the fragment shows its range and nothing else.
  * @property {number | null} [reach] The last position the decision of where to stop read, null for the end of the document. A change up to it dirties this fragment. Omitted, the first word after `to` stands for it, which is all a greedy line break reads; a fragmentainer with a rule that reads further (widows, a kept block) answers it.
  */
 
