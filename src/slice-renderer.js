@@ -141,6 +141,9 @@ export function sliceRenderer(words, faces) {
   return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document, faces);
 }
 
+/** The depth in the document of the node every element the renderer wrote for a node stands for, for the view to find a node's pieces in the shown DOM (a node selection, a node decoration). A WeakMap, so a measuring copy let go is gone from it. @type {WeakMap<globalThis.Node, number>} */
+export const DEPTHS = new WeakMap();
+
 /** The slice renderer of the default registry. */
 export const renderSlice = sliceRenderer();
 
@@ -173,6 +176,8 @@ function render(words, doc, from, to, document, faces) {
   let cursor = from - slice.openStart;
   /** The depth of the last divided ancestor met on the way down the slice's open start. */
   let depth = 0;
+  /** The depth of the node being written. */
+  let level = 0;
   const add = (/** @type {globalThis.Node} */ el, /** @type {string} */ word) => addWord(/** @type {Element} */ (el), word, words.attribute);
 
   // One instance per render, so the cursor and the map are this render's alone.
@@ -200,6 +205,7 @@ function render(words, doc, from, to, document, faces) {
       return document.createDocumentFragment();
     }
     const { dom, contentDOM } = DOMSerializer.renderSpec(document, base.nodes[node.type.name](node), null, node.attrs);
+    const own = ++level;
     /** @type {Span} */
     const span = { start: clamp(start), end: clamp(start + node.nodeSize) };
     // Virtual positions: an ancestor opened at the start begins before what is shown, one cut at the end runs past it (its slice node closes after `end`).
@@ -231,12 +237,15 @@ function render(words, doc, from, to, document, faces) {
       }
     }
     cursor = start + node.nodeSize;
+    level = own - 1;
     if (faces?.has(node.type) && dom.nodeType === 1) {
       const wrapper = standIn(document, /** @type {HTMLElement} */ (dom), node, faces);
       positions.set(wrapper, span);
+      DEPTHS.set(wrapper, own);
       return wrapper;
     }
     positions.set(dom, span);
+    DEPTHS.set(dom, own);
     return dom;
   };
   if (structured) {

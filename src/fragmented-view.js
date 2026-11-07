@@ -20,7 +20,7 @@
  *
  * Scrolling. A transaction that asks for it (`scrollIntoView`) scrolls the head's rectangle into the view of every scrolling ancestor, as `EditorView` does, with `scrollThreshold`, `scrollMargin` and `handleScrollToSelection` read as it reads them. The head may stand in a fragment still to be filled when the transaction is applied, so the scroll is made again at each update until the chain has settled up to the head.
 
-Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. Widget and node decorations are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
+Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. A node decoration's `class` goes on every shown piece of its node, and a node selection's node gets `ProseMirror-selectednode` the same way, pieces divided across fragments included; measuring copies are never touched. A selection paints each of its `ranges` (a cell selection's cells), and one that says it is not `visible` paints none. Widget decorations, and a node decoration's other attributes, are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
  *
  * Node views. A leaf node type may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the page that holds the node, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's is refused by name at the prop.
  *
@@ -33,7 +33,7 @@ import { AllSelection, NodeSelection, Selection, TextSelection } from 'prosemirr
 import { DOMParser as PMDOMParser, DOMSerializer, Fragment, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
-import { sliceRenderer, openedAt } from './slice-renderer.js';
+import { sliceRenderer, openedAt, DEPTHS } from './slice-renderer.js';
 import { Faces } from './faces.js';
 
 /** @import { EditorState, Transaction, Plugin, PluginView } from 'prosemirror-state' */
@@ -322,6 +322,8 @@ export class FragmentedView {
     this.lastSelection = null;
     /** @type {Set<string>} */
     this.highlightNames = new Set();
+    /** The classes the last paint put on shown pieces of nodes: a node selection's and node decorations'. @type {[Element, string][]} */
+    this.nodeClasses = [];
     /** @type {PluginView[]} */
     this.pluginViews = [];
     /** Measured: milliseconds the last `updateState` spent, rendering included. */
@@ -1053,18 +1055,20 @@ export class FragmentedView {
   /** The selection and the decorations, as highlights over the built fragments. */
   paint() {
     this.paintSelection();
-    this.paintDecorations();
+    const sets = this.decorationSets();
+    this.paintDecorations(sets);
+    this.paintNodes(sets);
   }
 
-  /** One `StaticRange` per built fragment the model's selection crosses, in the `fragview-selection` highlight. */
+  /** One `StaticRange` per built fragment each of the model's selection's ranges crosses (a cell selection has one per cell), in the `fragview-selection` highlight; none for a selection that says it is not `visible`. */
   paintSelection() {
     const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
     if (!highlights) return;
-    const { from, to, empty } = this.state.selection;
+    const { selection } = this.state;
     const size = this.state.doc.content.size;
     const ranges = [];
-    if (!empty) for (const entry of this.entries) {
-      const a = Math.max(from, entry.from), b = Math.min(to, entry.to ?? size);
+    if (selection.visible !== false) for (const { $from, $to } of selection.ranges) for (const entry of this.entries) {
+      const a = Math.max($from.pos, entry.from), b = Math.min($to.pos, entry.to ?? size);
       if (a >= b) continue;
       const start = this.containerPoint(entry, a), end = this.containerPoint(entry, b);
       if (!start || !end) continue;
@@ -1077,9 +1081,8 @@ export class FragmentedView {
   /**
    * Inline decorations with a class, one highlight per class, clipped to each built fragment. A fragment keeps the ranges of its last paint while its DOM is the same settled fill's and the decorations over its range are the same, relative to its `from` (a paint while its fill is in flight is not kept); so a key repaints the fragments it refilled, not the document.
    */
-  paintDecorations() {
-    const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
-    if (!highlights) return; // no Custom Highlight API: decorations are ignored
+  /** Every decoration set the `decorations` props answer for the state. */
+  decorationSets() {
     /** @type {any[]} */
     const sets = [];
     this.someProp('decorations', (f) => {
@@ -1089,6 +1092,50 @@ export class FragmentedView {
       else if (source?.find) sets.push(source);
       return false; // every source is read
     });
+    return sets;
+  }
+
+  /**
+   * The classes that go on nodes' elements: `ProseMirror-selectednode` on every shown piece of a node selection's node (a leaf with a node view is the face's to mark, in `faces.js`), and a node decoration's `class` on every shown piece of its node. Only the containers' shown DOM is touched, never a measuring copy. ponytail: a node decoration's other attributes (`style`, `nodeName`) are ignored.
+   * @param {any[]} sets
+   */
+  paintNodes(sets) {
+    const { selection } = this.state;
+    /** @type {[Element, string][]} */
+    const next = [];
+    const mark = (/** @type {number} */ from, /** @type {string[]} */ classes) => { for (const el of this.shownPieces(from)) for (const cls of classes) next.push([el, cls]); };
+    if (selection instanceof NodeSelection && !this.faces.has(selection.node.type)) mark(selection.from, ['ProseMirror-selectednode']);
+    for (const set of sets) for (const d of set.find()) if (!d.inline && !d.widget && d.type.attrs?.class) mark(d.from, d.type.attrs.class.split(/\s+/).filter(Boolean));
+    for (const [el, cls] of this.nodeClasses) el.classList.remove(cls);
+    for (const [el, cls] of next) el.classList.add(cls);
+    this.nodeClasses = next;
+  }
+
+  /**
+   * The elements that show the node at `pos` in the built fragments, one per fragment that shows part of it: for a leaf its element, for a divided node the element at the node's depth around a position inside it, in each fragment its range meets.
+   * @param {number} pos
+   * @returns {Element[]}
+   */
+  shownPieces(pos) {
+    const { doc } = this.state;
+    const node = doc.nodeAt(pos);
+    if (!node || node.isText) return [];
+    if (node.isLeaf) { const dom = this.nodeDOM(pos); return dom ? [dom] : []; }
+    const depth = doc.resolve(pos).depth + 1, end = pos + node.nodeSize, size = doc.content.size;
+    /** @type {Element[]} */
+    const pieces = [];
+    for (const entry of this.entries) {
+      if (!this.containers.has(entry.key) || pos >= (entry.to ?? size) || end <= entry.from) continue;
+      const point = this.containerPoint(entry, Math.max(pos + 1, entry.from));
+      for (let n = point?.node; n && n !== this.dom; n = n.parentNode) if (DEPTHS.get(n) === depth) { pieces.push(/** @type {Element} */ (n)); break; }
+    }
+    return pieces;
+  }
+
+  /** @param {any[]} sets */
+  paintDecorations(sets) {
+    const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
+    if (!highlights) return; // no Custom Highlight API: decorations are ignored
     const size = this.state.doc.content.size;
     /** @type {Map<string, StaticRange[]>} */
     const byClass = new Map();
