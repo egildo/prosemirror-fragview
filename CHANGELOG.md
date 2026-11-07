@@ -11,8 +11,6 @@ Fixes from the assessment of 2026-11-07.
 
 A clean checkout passes its tests. Vite's dependency optimizer is off for the harness and the suites, since every dependency here is an ES module; with it on, parallel suite files fought over one cache and 57 to 61 of 157 tests failed on the first run. `FRAGVIEW_VITE_CACHE` goes with it.
 
-A release is published by hand. `scripts/release.sh` installs, tests and publishes from a clean checkout of HEAD, then tags and pushes, signed in to npm with Egildo's security key. `.github/workflows/release.yml` is gone, and with it the token and the provenance attestation; the record is *a release moves three remotes at once*, amended 2026-11-07.
-
 The harness stands on its own.
 
 - The generic schema the harness and the phase 3 scripts parse with is now `harness/schema-generic.js`, copied from the old studio. `BELTYPE_STUDIO` is gone, so a clean clone runs every script. The file is exported as `prosemirror-fragview/schema-generic` for `prosemirror-beltype`'s measurement. It is no part of the view's API.
