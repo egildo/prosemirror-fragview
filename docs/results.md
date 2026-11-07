@@ -91,7 +91,7 @@ Written 2026-10-24, on the branch `phase/2-fixed-height-boxes-and-the-chain`. A 
 | `scripts/chain.mjs` | 355 | The acts below. `parity.mjs` gained `--boxes`. |
 | `test/` | 301 (258) | The plugin: `dirtied`, the first word after a cut, the drop at the end (11 cases in all). The box: a 40-pixel box under 60-pixel lines, and a chain of such boxes reaching the end (5 in all). |
 
-One answer to an open question of the plan: `fill` stays asynchronous by signature, and every late truth after it arrives through `moved`. The `OverflowBox` does all its work synchronously, so its promise settles in a microtask, and the view's ripple, one `refilled` transaction per fragment, completes before the browser's next task.
+One answer to an open question of the plan: `fill` stays asynchronous by signature, and every late truth after it arrives through `moved`. The `OverflowBox` does all its work synchronously, so its promise settles in a microtask, and the view's ripple, one `refilled` transaction per fragment, completes before the browser's next task. Since 2026-11-07 it does so only up to the pages in view and one more; the rest follows in idle slices (CHANGELOG, Unreleased).
 
 ## The chain in motion
 

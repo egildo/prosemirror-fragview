@@ -89,7 +89,7 @@ const settled = () => {
   return new Promise((resolve, reject) => {
     const tick = () => {
       const v = /** @type {FragmentedView} */ (view);
-      if (v.filling.size === 0 && v.entries.every((e) => !e.dirty || !v.containers.has(e.key))) resolve(undefined);
+      if (v.filling.size === 0 && !v.rippling && v.entries.every((e) => !e.dirty || !v.containers.has(e.key))) resolve(undefined);
       else if (performance.now() - started > 5000) reject(new Error('the chain did not settle'));
       else requestAnimationFrame(tick);
     };

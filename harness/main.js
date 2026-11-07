@@ -110,8 +110,8 @@ function instrument(side) {
       if (side === 'right') { timings.rightUpdate.push(this.lastUpdateMs); settling = pending.right; }
       pending[side] = null;
     }
-    // The chain settled: the key's transaction and every refill it rippled into are rendered, and no fill is in flight.
-    if (side === 'right' && settling != null && this.filling.size === 0) {
+    // The chain settled: the key's transaction and every refill it rippled into are rendered, no fill is in flight and no idle slice is awaited.
+    if (side === 'right' && settling != null && this.filling.size === 0 && !this.rippling) {
       void this.dom.offsetHeight;
       timings.rightSettled.push(performance.now() - settling);
       settling = null;

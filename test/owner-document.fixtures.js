@@ -16,7 +16,7 @@ function settled(view) {
   const started = performance.now();
   return new Promise((resolve, reject) => {
     const tick = () => {
-      if (view.filling.size === 0 && view.entries.every((e) => !e.dirty || !view.containers.has(e.key))) resolve(undefined);
+      if (view.filling.size === 0 && !view.rippling && view.entries.every((e) => !e.dirty || !view.containers.has(e.key))) resolve(undefined);
       else if (performance.now() - started > 5000) reject(new Error('the chain did not settle'));
       else requestAnimationFrame(tick);
     };
