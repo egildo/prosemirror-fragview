@@ -10,11 +10,11 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word, a join across blocks). The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root.
  *
- * The selection. The model's selection is the truth, painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
+ * The selection. The model's selection is the truth, and the view stands down from the browser's while focus is outside the root or on an element inside it that keeps its own input (`ownsSelection`), so a control focused inside a page keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is the view's as the root is. `hasFocus()` itself is `prosemirror-view`'s rule, the root and nothing else. The selection is painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click is left to the browser.
  *
- * Foreign writes. The model is the truth and no input is left to the browser's DOM editing, but `beforeinput` is not the only way into the DOM: `execCommand`, a writing assistant, a text expander, a handler that takes an event without preventing it. A write that keeps the height moves no observer, and would stay on screen with the model not holding it, to be lost at the next save. So a `MutationObserver` watches the fragments, and a text node changed, added or removed outside a composition dirties its fragment, which is drawn again from the model; nothing is read back. The view's own fills write whole elements and are not taken for such a write, and the container's contract says so. A writer that answers every redraw (a translator) stops being answered after `FOREIGN_BUDGET` per entry and per document, with one warning. The root also carries the opt-outs those writers honour, `translate="no"` and Grammarly's and LanguageTool's attributes, so most never write; a host that wants one of them back removes its attribute from `view.dom`.
+ * Foreign writes. The model is the truth and no input is left to the browser's DOM editing, but `beforeinput` is not the only way into the DOM: `execCommand`, a writing assistant, a text expander, a handler that takes an event without preventing it. A write that keeps the height moves no observer, and would stay on screen with the model not holding it, to be lost at the next save. So a `MutationObserver` watches the fragments, and a text node changed, added or removed outside a composition dirties its fragment, which is drawn again from the model; nothing is read back. A leaf's own drawing is outside this: it holds none of the document's text, and a custom element in one may render what it likes. The view's own fills write whole elements and are not taken for such a write, and the container's contract says so. A writer that answers every redraw (a translator) stops being answered after `FOREIGN_BUDGET` per entry and per document, with one warning. The root also carries the opt-outs those writers honour, `translate="no"` and Grammarly's and LanguageTool's attributes, so most never write; a host that wants one of them back removes its attribute from `view.dom`.
  *
  * Composition (an IME, a dead key on macOS) is left to the browser, and the view renders nothing while it lasts; at `compositionend` the text it committed is inserted at the selection held since `compositionstart` (or since the first `insertCompositionText`, when no `compositionstart` reached the view), as a typed key's text is, and the fragment it was composed in is drawn again from the model. Nothing is read back from the DOM, as Slate and Lexical apply a composition. A composition set over a replacement range replaces it, since Chromium selects the range before `compositionstart`; an input method that recomposes text before the caret without selecting it (Android's keyboards set a composing region over the word with the selection collapsed) is not followed: its commit is inserted at the caret and the word it meant to replace stays. That case is reasoned, not measured: no CDP command sets such a region.
  *
@@ -63,6 +63,9 @@ const FOREIGN_BUDGET = 3;
 
 /** What the root carries so the writers that honour it leave the fragments alone: page translation, Grammarly, LanguageTool. */
 const OPT_OUTS = [['translate', 'no'], ['data-gramm', 'false'], ['data-gramm_editor', 'false'], ['data-enable-grammarly', 'false'], ['data-lt-active', 'false']];
+
+/** The form controls, which keep their own input wherever they are drawn. */
+const CONTROLS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
 
 const INPUTS = ['keydown', 'mousedown', 'touchstart', 'beforeinput', 'compositionstart', 'cut', 'paste', 'dragstart'];
 
@@ -326,11 +329,16 @@ export class FragmentedView {
       compositionstart: (e) => this.onCompositionStart(e),
       compositionend: (e) => this.onCompositionEnd(e),
       mousedown: (e) => this.onMouseDown(e),
+      // The focus coming back from a control finds the browser's selection where the control left it: the model's is drawn before anything reads it or a Shift+click extends it. Only then: focus also reaches the root in the middle of a click on a focusable element holding text, from that element, and a draw there would overwrite the click.
+      focus: (e) => { if (e.relatedTarget && this.dom.contains(e.relatedTarget) && this.keepsInput(e.relatedTarget)) this.selectionToDOM(); },
     };
-    for (const [type, handler] of Object.entries(this.handlers)) this.dom.addEventListener(type, handler);
+    for (const [type, handler] of Object.entries(this.handlers)) {
+      this.handlers[type] = (e) => { if (!this.ownedInside(e)) handler(e); };
+      this.dom.addEventListener(type, this.handlers[type]);
+    }
     this.countInput = (/** @type {Event} */ e) => { this.inputs++; if (e.type === 'mousedown' || e.type === 'touchstart') this.dropped = false; };
     for (const type of INPUTS) this.dom.addEventListener(type, this.countInput, true);
-    this.onSelectionChange = () => { if (this.hasFocus()) this.noteDrop() || this.readSelection(); };
+    this.onSelectionChange = () => { if (this.ownsSelection()) this.noteDrop() || this.readSelection(); };
     this.dom.ownerDocument.addEventListener('selectionchange', this.onSelectionChange);
     installSelectionStyle(this.dom.ownerDocument);
     /** Foreign writes answered per entry, for one document. @type {{ doc: PMNode | null, counts: Map<number, number>, warned: boolean }} */
@@ -444,9 +452,31 @@ export class FragmentedView {
     return undefined;
   }
 
+  /** Whether the editing host itself has focus, `prosemirror-view`'s rule. The view's own stand-down is `ownsSelection`. */
   hasFocus() {
+    return this.dom.ownerDocument.activeElement === this.dom;
+  }
+
+  /**
+   * Whether an element inside the root keeps its own input and holds none of the document's text: a form control, or anything in a leaf's drawing.
+   * @param {Element} element
+   */
+  keepsInput(element) {
+    return CONTROLS.has(element.nodeName) || this.leafAround(element) != null;
+  }
+
+  /** Whether the browser's selection is the view's to read and write: focus on the root, or on something inside it that holds the document's text (a mark or a block with a `tabindex`, an editing host around a content hole). Narrower than `hasFocus()`'s complement: only an element that keeps its own input makes the view stand down. */
+  ownsSelection() {
     const active = this.dom.ownerDocument.activeElement;
-    return !!active && this.dom.contains(active);
+    return active === this.dom || (!!active && this.dom.contains(active) && !this.keepsInput(active));
+  }
+
+  /**
+   * Stand-in for `EditorView.docView`, which a plugin reads to ask whether the view is alive (`y-prosemirror`'s cursor plugin): truthy until `destroy()`, null after. There is no desc tree behind it.
+   * @returns {true | null}
+   */
+  get docView() {
+    return this.destroyed ? null : true;
   }
 
   focus() {
@@ -846,17 +876,29 @@ export class FragmentedView {
     }
     if (!node || !this.dom.contains(node)) return null;
     const pos = this.posAt(node, offset);
-    if (pos == null) return null;
+    // A fragment not yet refilled answers the positions of the document it was filled from.
+    if (pos == null || pos > this.state.doc.content.size) return null;
     const hit = doc.elementFromPoint(left, top);
-    // The leaf under the point is the nearest element up from the hit that spans exactly a leaf node, so an atom that shows text is found as an empty one is.
-    for (let el = hit; el && el !== this.dom && el.parentNode && this.dom.contains(el); el = el.parentNode) {
-      const index = Array.prototype.indexOf.call(el.parentNode.childNodes, el);
-      const leaf = this.posAt(el.parentNode, index);
-      const found = leaf == null ? null : this.state.doc.nodeAt(leaf);
-      if (found && found.isLeaf && !found.isText && this.posAt(el.parentNode, index + 1) === leaf + found.nodeSize) return { pos, inside: leaf };
-    }
+    const leaf = this.leafAround(hit);
+    if (leaf != null) return { pos, inside: leaf };
     const $pos = this.state.doc.resolve(pos);
     return { pos, inside: $pos.depth ? $pos.before() : -1 };
+  }
+
+  /**
+   * The position of the leaf node whose drawing holds `node`, or null: the nearest element up from it that spans exactly a leaf node, so an atom that shows text is found as an empty one is.
+   * @param {globalThis.Node | null} node
+   * @returns {number | null}
+   */
+  leafAround(node) {
+    for (let el = node; el && el !== this.dom && el.parentNode && this.dom.contains(el); el = el.parentNode) {
+      const index = Array.prototype.indexOf.call(el.parentNode.childNodes, el);
+      const leaf = this.posAt(el.parentNode, index);
+      // A fragment not yet refilled answers the positions of the document it was filled from, which may lie past this one's end.
+      const found = leaf == null || leaf < 0 || leaf > this.state.doc.content.size ? null : this.state.doc.nodeAt(leaf);
+      if (found && found.isLeaf && !found.isText && this.posAt(el.parentNode, index + 1) === leaf + found.nodeSize) return leaf;
+    }
+    return null;
   }
 
   /**
@@ -908,7 +950,7 @@ export class FragmentedView {
   /** Draw the model selection with the browser's own, when the view has focus. */
   selectionToDOM() {
     this.dropped = false;
-    if (!this.hasFocus() || this.composing) return;
+    if (!this.ownsSelection() || this.composing) return;
     this.drawnInputs = this.inputs;
     this.drawnFill = this.headFill();
     const { selection } = this.state;
@@ -938,9 +980,9 @@ export class FragmentedView {
     this.lastSelection = [domSelection.anchorNode, domSelection.anchorOffset, domSelection.focusNode, domSelection.focusOffset];
   }
 
-  /** Read the browser's selection back into the model when the browser moved it (a click, an arrow, a Shift-extension). */
+  /** Read the browser's selection back into the model when the browser moved it (a click, an arrow, a Shift-extension). Under an element that keeps its own input the browser's selection is no one's: it stands on that element's drawing. */
   readSelection() {
-    if (this.composing || this.pointer?.moved || this.dropped) return;
+    if (!this.ownsSelection() || this.composing || this.pointer?.moved || this.dropped) return;
     const domSelection = this.dom.ownerDocument.getSelection();
     if (!domSelection || !domSelection.anchorNode || !this.dom.contains(domSelection.anchorNode) || !this.dom.contains(domSelection.focusNode)) return;
     const now = [domSelection.anchorNode, domSelection.anchorOffset, domSelection.focusNode, domSelection.focusOffset];
@@ -1033,6 +1075,16 @@ export class FragmentedView {
   // ---- Input ----
 
   /**
+   * Whether an event belongs to an element drawn inside a page and not to the view, as `eventBelongsToView` decides in `prosemirror-view`; neither `handleDOMEvents` nor the view's own handler sees it. It is, when it comes from a form control or from inside one (a plain `toDOM` has no other way to say so), or from an editing host nested in a leaf's drawing. An element with any other input of its own stops propagation at its own root, which needs no word from the view. The path sees through an open shadow root, where `event.target` is retargeted; a closed one must stop propagation itself. A node view's `stopEvent` would be asked here.
+   * @param {Event} event
+   */
+  ownedInside(event) {
+    const path = /** @type {any[]} */ (event.composedPath());
+    const inside = path.slice(0, path.indexOf(this.dom));
+    return inside.some((node) => CONTROLS.has(node.nodeName)) || (!!inside[0]?.isContentEditable && this.leafAround(/** @type {globalThis.Node} */ (event.target)) != null);
+  }
+
+  /**
    * Run `handleDOMEvents` for the event; true when a handler took it.
    * @param {Event} event
    */
@@ -1086,14 +1138,14 @@ export class FragmentedView {
   }
 
   /**
-   * The release. After a drag the browser's own selection is drawn from the model again, since its drag may have written to it after the last move, and the `selectionchange` that follows would read that. After a click on a selectable atom (Shift leaves it to the browser) the atom is selected, as `prosemirror-view`'s `selectClickedLeaf` does.
+   * The release. After a drag the browser's own selection is drawn from the model again, since its drag may have written to it after the last move, and the `selectionchange` that follows would read that. After a click on a selectable atom (Shift leaves it to the browser) the atom is selected, as `prosemirror-view`'s `selectClickedLeaf` does. Either way the selection is the view's now, so the focus comes back to the root from anything focusable the press landed on (a link, an element with a `tabindex`), as `prosemirror-view`'s `updateSelection` takes it.
    * @param {MouseEvent} event
    */
   onMouseUp(event) {
     const pointer = this.pointer;
     this.endPointer();
     if (!pointer) return;
-    if (pointer.moved) this.selectionToDOM();
+    if (pointer.moved) this.focus();
     else if (pointer.inside > -1 && this.selectClickedLeaf(Math.min(pointer.inside, this.state.doc.content.size))) event.preventDefault();
   }
 
@@ -1104,6 +1156,7 @@ export class FragmentedView {
     const $pos = this.state.doc.resolve(inside), node = $pos.nodeAfter;
     if (!node || !node.isAtom || !NodeSelection.isSelectable(node)) return false;
     this.dispatch(this.state.tr.setSelection(new NodeSelection($pos)));
+    this.focus();
     return true;
   }
 
@@ -1384,6 +1437,7 @@ export class FragmentedView {
     const keys = new Set();
     for (const record of records) {
       if (record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3)) continue;
+      if (this.leafAround(record.target) != null) continue;
       for (const [key, container] of this.containers) {
         if (!container.dom.contains(record.target)) continue;
         const count = this.foreign.counts.get(key) ?? 0;
