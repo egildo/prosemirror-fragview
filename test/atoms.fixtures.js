@@ -73,5 +73,23 @@ export async function run() {
   results.holder = holder;
   results.kept = keys.every((k, i) => view.containers.get(k) === containers[i]);
   view.destroy();
+  results.nested = await nested();
   return results;
+}
+
+/** A section opening at a cut with a paragraph first: the section and its paragraph both open at the cut, and only the section was found by `nodeDOM`. */
+async function nested() {
+  const host = document.createElement('div');
+  document.body.replaceChildren(host);
+  host.innerHTML = '<style>p { margin: 0 }</style>';
+  const mount = host.appendChild(document.createElement('div'));
+  const sect = new Schema({ nodes: basic.spec.nodes.addToEnd('section', { group: 'block', content: 'block+', toDOM: () => ['section', 0] }), marks: basic.spec.marks });
+  const one = (/** @type {string} */ t) => sect.node('paragraph', null, sect.text(t));
+  const doc = sect.node('doc', null, [...Array.from({ length: 10 }, (_, i) => one(`line ${i}`)), sect.node('section', null, [one('first'), one('after')])]);
+  const view = new FragmentedView(mount, { state: EditorState.create({ doc }), containers: () => new OverflowBox({ width: 300, height: 200 }) });
+  await settled(view);
+  const at = doc.child(0).nodeSize * 10; // the section, which opens at the cut
+  const out = { cut: view.entries[0].to, section: at, boxes: view.entries.length, tos: view.entries.map((e) => e.to), section_dom: view.nodeDOM(at)?.nodeName ?? null, paragraph_dom: view.nodeDOM(at + 1)?.nodeName ?? null, paragraph_text: view.nodeDOM(at + 1)?.textContent ?? null, section_in_second: view.containers.get(view.entries[1].key)?.dom.contains(view.nodeDOM(at)) ?? false };
+  view.destroy();
+  return out;
 }

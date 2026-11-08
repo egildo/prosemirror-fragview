@@ -51,7 +51,7 @@ import { Faces } from './faces.js';
 
 /**
  * The props: `EditorView`'s direct props, read through `someProp` as `EditorView` reads them, the factory, the words registry and the window policy.
- * @typedef {{ state: EditorState, containers: ContainerFactory, words?: Partial<Words>, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
+ * @typedef {{ state: EditorState, containers: ContainerFactory, words?: Partial<Words>, domSerializer?: DOMSerializer, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
  */
 
 /** @typedef {{ node: globalThis.Node, offset: number }} DOMPoint */
@@ -282,8 +282,10 @@ export class FragmentedView {
     /** The leaf node views. */
     this.faces = new Faces(this);
     this.faces.build();
+    /** The `domSerializer` prop the renderer was made with. @type {DOMSerializer | undefined} */
+    this.domSerializer = undefined;
     /** The slice renderer every fill is handed, for the `words` prop. @type {SliceRenderer} */
-    this.render = this.drawing(sliceRenderer(props.words, this.faces));
+    this.render = this.drawing(sliceRenderer(props.words, this.faces, this.domSerializer = this.someProp('domSerializer')));
     /** The root element holding the fragments; it is the editing host, created in the place's document. Every node and range after it is made in `this.dom.ownerDocument`, the document it lives in once placed. */
     this.dom = (place && typeof place !== 'function' ? place.ownerDocument : document).createElement('div');
     this.dom.className = 'fragview';
@@ -435,15 +437,16 @@ export class FragmentedView {
   }
 
   /**
-   * Merge props, as `EditorView.setProps` does. A new `containers`, `words` or `nodeViews` invalidates the chain, since a fragment rendered by the old factory, with the old words or the old stand-ins is stale.
+   * Merge props, as `EditorView.setProps` does. A new `containers`, `words`, `domSerializer` or `nodeViews` invalidates the chain, since a fragment rendered by the old factory, with the old words or the old stand-ins is stale.
    * @param {Partial<FragmentedViewProps>} props
    */
   setProps(props) {
     const old = this._props;
     this._props = { ...old, ...props };
     if ('nodeViews' in props) try { this.faces.build(); } catch (error) { this._props = old; throw error; }
-    if ('words' in props && props.words !== old.words) this.render = this.drawing(sliceRenderer(props.words, this.faces));
-    let stale = ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
+    const reserialized = 'domSerializer' in props && props.domSerializer !== this.domSerializer;
+    if (('words' in props && props.words !== old.words) || reserialized) this.render = this.drawing(sliceRenderer(this._props.words, this.faces, this.domSerializer = this.someProp('domSerializer')));
+    let stale = reserialized || ('containers' in props && props.containers !== old.containers) || ('words' in props && props.words !== old.words);
     if (props.state) this.updateState(props.state);
     else {
       stale = this.faces.build() || stale;

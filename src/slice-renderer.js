@@ -139,8 +139,9 @@ export function refuseMixedMarks(schema) {
  * The slice renderer that writes the words of `words`, a registry or part of one: the view builds one from its `words` prop and hands it to every fill.
  * @param {Partial<Words>} [words]
  * @param {Faces} [faces] Which leaf types have a node view; such a leaf is written as a stand-in.
+ * @param {DOMSerializer} [domSerializer] The serializer whose `nodes` and `marks` the renderer writes with, as `clipboardSerializer` is for `EditorView`'s copy; the schema's own when omitted.
  */
-export function sliceRenderer(words, faces) {
+export function sliceRenderer(words, faces, domSerializer) {
   const full = registry(words);
   /**
    * Render the slice of `doc` from `from` to `to` (to the end when `to` is null) with the schema's `DOMSerializer`, and record the position map.
@@ -150,7 +151,7 @@ export function sliceRenderer(words, faces) {
    * @param {Document} [document] The document to create nodes in; the global one when omitted.
    * @returns {RenderedSlice}
    */
-  return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document, faces);
+  return (doc, from, to, document = globalThis.document) => render(full, doc, from, to, document, faces, domSerializer);
 }
 
 /** The depth in the document of the node every element the renderer wrote for a node stands for, for the view to find a node's pieces in the shown DOM (a node selection, a node decoration). A WeakMap, so a measuring copy let go is gone from it. @type {WeakMap<globalThis.Node, number>} */
@@ -166,12 +167,13 @@ export const renderSlice = sliceRenderer();
  * @param {number | null} to
  * @param {Document} document
  * @param {Faces} [faces]
+ * @param {DOMSerializer} [given]
  * @returns {RenderedSlice}
  */
-function render(words, doc, from, to, document, faces) {
+function render(words, doc, from, to, document, faces, given) {
   const end = to ?? doc.content.size;
   const schema = doc.type.schema;
-  let base = serializers.get(schema);
+  let base = given ?? serializers.get(schema);
   if (!base) {
     refuseMixedMarks(schema);
     serializers.set(schema, (base = DOMSerializer.fromSchema(schema)));

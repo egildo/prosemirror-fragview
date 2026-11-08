@@ -105,3 +105,27 @@ export async function guards() {
     render: refusal(() => renderSlice(state.doc, 0, null)),
   };
 }
+
+/** A host's serializer rewrites an image's `src`: the pages show the rewritten one when it is given as the `domSerializer` prop, set at construction and later through `setProps`. */
+export async function serializerDoor() {
+  const { DOMSerializer } = await import('prosemirror-model');
+  const { EditorState } = await import('prosemirror-state');
+  const { schema } = await import('prosemirror-test-builder');
+  const { FragmentedView, OverflowBox } = await import('../src/index.js');
+  const nodes = { ...DOMSerializer.nodesFromSchema(schema), image: (/** @type {any} */ n) => ['img', { src: 'cdn:' + n.attrs.src }] };
+  const host = new DOMSerializer(nodes, DOMSerializer.marksFromSchema(schema));
+  const state = EditorState.create({ doc: doc(p(img({ src: 'a.png' }))) });
+  const containers = () => new OverflowBox({ width: 300 });
+  const settle = () => new Promise((r) => setTimeout(r, 300));
+  const srcs = (/** @type {FragmentedView} */ v) => [...v.dom.querySelectorAll('img')].map((i) => i.getAttribute('src'));
+  const mk = () => { const el = document.body.appendChild(document.createElement('div')); return el; };
+  const direct = new FragmentedView(mk(), { state, containers, domSerializer: host });
+  const plain = new FragmentedView(mk(), { state, containers });
+  await settle();
+  const before = srcs(plain);
+  plain.setProps({ domSerializer: host });
+  await settle();
+  const out = { direct: srcs(direct), before, after: srcs(plain) };
+  direct.destroy(); plain.destroy();
+  return out;
+}

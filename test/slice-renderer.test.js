@@ -66,3 +66,10 @@ test('a schema mixing structured and ordinary marks is refused by name, by the v
     assert.match(refusal.message, /code, link/);
   }
 });
+
+test('a domSerializer prop writes the pages with the host\'s node specs, given at construction or by setProps', async () => {
+  const r = await session.page.evaluate(async () => (await import('/test/slice-renderer.fixtures.js')).serializerDoor());
+  assert.deepEqual(r.direct, ['cdn:a.png']);
+  assert.deepEqual(r.before, ['a.png']);
+  assert.deepEqual(r.after, ['cdn:a.png']);
+});

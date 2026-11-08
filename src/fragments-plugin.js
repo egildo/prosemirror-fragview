@@ -16,6 +16,8 @@
  *
  * The view's refills are transactions too: `refilled` sets an entry's `to` and clears its `dirty`, `appended` adds the entry after the last, and `dirtied` marks an entry (or several) dirty with no step (late truth: a fragment's content changed height after its fill), or every entry when it names none (the view's invalidation: the conditions of every fill changed). `dirtied` also counts its asks in the entry's `asked`, because the document does not change: the view compares the count to know that a fill in flight began before the latest ask, and fills again. All go through a meta under `fragmentsKey`, and all mark the transaction `addToHistory: false`, so no refill is ever undone.
  *
+ * The state serializes as `{ entries }`, the entries as they are (keys, ranges, `dirty`, `reach`, `shows`, `asked`), when the plugin is named in `EditorState.toJSON`'s and `fromJSON`'s `pluginFields`, so a state reopened from JSON keeps its chain and whatever is keyed by the entries' keys (a paginator's rows) still meets them.
+ *
  * @packageDocumentation
  */
 
@@ -73,6 +75,8 @@ export function fragmentsPlugin() {
         }
         return entries === value.entries ? value : { entries };
       },
+      toJSON: (value) => ({ entries: value.entries }),
+      fromJSON: (_config, json) => ({ entries: json.entries }),
     },
   });
 }
