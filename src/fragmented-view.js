@@ -24,7 +24,9 @@ Decorations. Inline decorations with a class are painted with the CSS Custom Hig
  *
  * Node views. A leaf, or a block whose view has no content hole, may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the earliest page that holds the node whole, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's view is placed only where the block stands whole in one page, and a block the cut divided keeps its drawing on each page that shows a piece. The inside of a placed block face is the face's, as `prosemirror-view` treats a node view without `contentDOM`: a position inside answers the wrapper's edge and no `nodeDOM`, a selection inside writes no browser selection and is handed to the face's `setSelection`, and nothing inside is marked. Text and a view that answers a `contentDOM` are refused.
  *
- * What the view does not do yet, besides the above: a node view with a content hole, mark views, drag and drop (both halves are refused), the `attributes` prop, and bidirectional text in `endOfTextblock`.
+ * Attributes. The `attributes` prop is `EditorView`'s, applied to the root at every update (`applyAttributes`). The root carries the role and the accessible name only: the fragments inside are rebuilt at every fill, and what assistive technology makes of that is measured by nobody yet.
+ *
+ * What the view does not do yet, besides the above: a node view with a content hole, mark views, drag and drop (both halves are refused), and bidirectional text in `endOfTextblock`.
  *
  * @packageDocumentation
  */
@@ -66,6 +68,12 @@ const FOREIGN_BUDGET = 3;
 
 /** What the root carries so the writers that honour it leave the fragments alone: page translation, Grammarly, LanguageTool. */
 const OPT_OUTS = [['translate', 'no'], ['data-gramm', 'false'], ['data-gramm_editor', 'false'], ['data-enable-grammarly', 'false'], ['data-lt-active', 'false']];
+
+/** The root's attributes the `attributes` prop cannot set: the opt-outs and `contenteditable`, which the view writes itself, and `nodeName`, which `prosemirror-view` reads as the element's name. */
+const MECHANICS = new Set(['contenteditable', 'nodename', ...OPT_OUTS.map(([name]) => name)]);
+
+/** The text mechanics `prosemirror-view`'s own stylesheet sets, so a typed space shows and lines wrap as they do there. */
+const MECHANIC_STYLE = { whiteSpace: 'break-spaces', overflowWrap: 'break-word', fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0' };
 
 /** The form controls, which keep their own input wherever they are drawn. */
 const CONTROLS = new Set(['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON']);
@@ -279,8 +287,7 @@ export class FragmentedView {
     /** The root element holding the fragments; it is the editing host, created in the place's document. Every node and range after it is made in `this.dom.ownerDocument`, the document it lives in once placed. */
     this.dom = (place && typeof place !== 'function' ? place.ownerDocument : document).createElement('div');
     this.dom.className = 'fragview';
-    // The text mechanics prosemirror-view's own stylesheet sets, so a typed space shows and lines wrap as they do there.
-    Object.assign(this.dom.style, { whiteSpace: 'break-spaces', overflowWrap: 'break-word', fontVariantLigatures: 'none', fontFeatureSettings: '"liga" 0' });
+    Object.assign(this.dom.style, MECHANIC_STYLE);
     for (const [name, value] of OPT_OUTS) this.dom.setAttribute(name, value);
     if (typeof place === 'function') place(this.dom);
     else if (place) place.appendChild(this.dom);
@@ -325,6 +332,8 @@ export class FragmentedView {
     this.onPointerScroll = () => this.followPointer();
     this.onPointerUp = (/** @type {MouseEvent} */ e) => this.onMouseUp(e);
     this.editable = true;
+    /** What the `attributes` prop last put on the root: its attributes, its classes and its style. @type {{ attrs: Record<string, string>, classes: string[], style: string }} */
+    this.applied = { attrs: {}, classes: [], style: '' };
     this.destroyed = false;
     /** `EditorView.dragging`, which plugins read: always null, since the view takes no drag. @type {null} */
     this.dragging = null;
@@ -543,6 +552,44 @@ export class FragmentedView {
   }
 
   /**
+   * Put the `attributes` prop's answer on the root, as `EditorView` does: the direct prop's and every plugin's, a function asked of the state, in plugin order.
+   *
+   * @remarks
+   * Classes and styles add up, after the view's own; for any other name the first that gives it wins, and `MECHANICS` are never taken. When none gives a `role`, the root is `role="textbox"` with `aria-multiline="true"`. What a prop stops giving is removed.
+   */
+  applyAttributes() {
+    /** @type {Record<string, string>} */
+    const attrs = {};
+    /** @type {string[]} */
+    const classes = [];
+    let style = '';
+    this.someProp('attributes', (value) => {
+      if (typeof value === 'function') value = value(this.state);
+      if (value) for (const name in value) {
+        if (name === 'class') classes.push(...String(value[name]).split(' ').filter(Boolean));
+        else if (name === 'style') style += (style ? ';' : '') + value[name];
+        else if (!(name in attrs) && !MECHANICS.has(name.toLowerCase())) attrs[name] = String(value[name]);
+      }
+    });
+    if (!('role' in attrs)) { attrs.role = 'textbox'; attrs['aria-multiline'] ??= 'true'; }
+    const prev = this.applied;
+    for (const name in prev.attrs) if (!(name in attrs)) this.dom.removeAttribute(name);
+    for (const name in attrs) if (attrs[name] !== prev.attrs[name]) this.dom.setAttribute(name, attrs[name]);
+    for (const name of prev.classes) if (name !== 'fragview' && !classes.includes(name)) this.dom.classList.remove(name);
+    this.dom.classList.add(...classes);
+    if (style !== prev.style) {
+      if (prev.style) {
+        const parsed = this.dom.ownerDocument.createElement('div').style;
+        parsed.cssText = prev.style;
+        for (const property of Array.from(parsed)) this.dom.style.removeProperty(property);
+        Object.assign(this.dom.style, MECHANIC_STYLE);
+      }
+      this.dom.style.cssText += style;
+    }
+    this.applied = { attrs, classes, style };
+  }
+
+  /**
    * The state's change reaches the DOM: containers released and placeholders placed to match the chain, the next dirty entry filled, the selection and the decorations drawn, the plugin views told.
    * @param {EditorState | null} prev
    */
@@ -557,6 +604,7 @@ export class FragmentedView {
     this.ensureListeners();
     const editable = !this.someProp('editable', (f) => f(this.state) === false);
     if (editable !== this.editable || !prev) this.dom.contentEditable = String((this.editable = editable));
+    this.applyAttributes();
     this.refresh();
     // As EditorView does, the browser's selection is written only when the state changed it or the fragment it stands in was drawn again: a refill of another fragment (a transaction with no selection) must not draw the model's selection over a click the browser has made and `selectionchange` has not yet reported.
     if (!prev || prev.doc !== this.state.doc || !prev.selection.eq(this.state.selection) || this.headFill() !== this.drawnFill) this.selectionToDOM();

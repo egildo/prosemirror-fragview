@@ -79,5 +79,32 @@ export const pasteHTML = () => paste((data) => data.setData('text/html', '<p>low
 
 export const read = () => log;
 
-Object.assign(window, { fixture: { fresh, later, fire, focusAndBlur, pasteFile, pasteText, pasteHTML, read } });
-void schema;
+/** The root's attributes, by name. */
+const attributes = () => Object.fromEntries([.../** @type {FragmentedView} */ (view).dom.attributes].map((a) => [a.name, a.value]));
+
+/** The `attributes` prop, from the direct props, from two plugins and through `setProps`: the root's attributes after each step. */
+export function attributesProp() {
+  view?.destroy();
+  /** @type {any[]} */
+  const steps = [];
+  const plain = new FragmentedView(document.body, { state: EditorState.create({ doc: doc(p('One.')) }), containers: () => new OverflowBox({ width: 400, height: 300 }) });
+  steps.push(Object.fromEntries([...plain.dom.attributes].map((a) => [a.name, a.value])));
+  plain.destroy();
+  const byState = new Plugin({ props: { attributes: (state) => (state.doc.childCount > 1 ? { class: 'many', 'data-count': String(state.doc.childCount) } : { class: 'one', 'aria-label': 'Draft' }) } });
+  const later = new Plugin({ props: { attributes: { class: 'later', style: 'color: red', contenteditable: 'false', translate: 'yes', 'data-gramm': 'true', role: 'document' } } });
+  view = new FragmentedView(document.body, {
+    state: EditorState.create({ doc: doc(p('One.')), plugins: [byState, later] }),
+    containers: () => new OverflowBox({ width: 400, height: 300 }),
+    attributes: { 'aria-label': 'Body', 'data-direct': 'yes', style: 'margin: 2px' },
+  });
+  steps.push(attributes());
+  view.dispatch(view.state.tr.insert(view.state.doc.content.size, schema.node('paragraph', null, schema.text('Two.'))));
+  steps.push(attributes());
+  view.setProps({ attributes: { 'data-set': 'on' } });
+  steps.push(attributes());
+  view.setProps({ attributes: undefined });
+  steps.push(attributes());
+  return steps;
+}
+
+Object.assign(window, { fixture: { fresh, later, fire, focusAndBlur, pasteFile, pasteText, pasteHTML, read, attributesProp } });

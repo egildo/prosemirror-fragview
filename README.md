@@ -14,6 +14,10 @@ Phases 1, 2, 3 and 4a are built. Phase 1 is the package, and the proof that a `F
 
 Editing, selection and composition are verified in Chromium only: the harness and every suite run headless Chromium, and nothing here is measured in Firefox or WebKit. Elsewhere the view loads and works as an editor, unverified. Android is unsupported for now: there a composition over an existing word duplicates text in the document and Backspace skips the keymaps, so a host on Android should mount a plain `EditorView` instead. Where a browser sends a delete with no target range, the view takes one step of the model's: the character, the surrogate pair or the inline node beside the caret, or the selection.
 
+## Attributes
+
+The `attributes` prop, direct or from a plugin, an object or a function of the state, puts its attributes on `view.dom` as `EditorView` does: classes and styles add up after the view's own, for any other name the first to give it wins, and what a prop stops giving is removed; without a `role` from any of them the root is `role="textbox"` with `aria-multiline="true"`, and `contenteditable`, `translate` and the writer opt-outs (`data-gramm`, `data-gramm_editor`, `data-enable-grammarly`, `data-lt-active`) stay the view's. The root carries the role and the accessible name only: the fragments inside are rebuilt at every fill, and what assistive technology makes of that is measured by nobody yet.
+
 ## Node views
 
 A leaf node type, or a block whose view has no content hole, may have a node view, through the `nodeViews` prop or a plugin's `props.nodeViews`, in `prosemirror-view`'s shape. The constructor receives `(node, view, getPos, decorations)`, where `decorations` are the node decorations whose range is exactly the node's, as `prosemirror-view` hands its outer decorations, and `getPos()` already answers the node's position while the constructor runs. A node view for text throws a `RangeError` at the prop. A view that answers a `contentDOM` is refused when it is made, its error raised apart while the node keeps its drawing, since a content hole would be divided across fragments.
