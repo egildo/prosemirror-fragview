@@ -2,7 +2,7 @@
  * `FragmentedView`: an `EditorState` rendered into a chain of fragmentainers, speaking `EditorView`'s protocol to the same plugins.
  *
  * @remarks
- * Constructed as `EditorView` is, with two more props: `containers`, the `ContainerFactory` the view asks for each fragmentainer, and `words`, the words registry of the slice renderer it hands every fill (`sliceRenderer(words)`, built once; this package's own words when omitted). The plugin and the containers never see the registry: a container receives the renderer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
+ * Constructed as `EditorView` is, with two more props: `containers`, the `ContainerFactory` the view asks for each fragmentainer, `highlightScope` (see Decorations), and `words`, the words registry of the slice renderer it hands every fill (`sliceRenderer(words)`, built once; this package's own words when omitted). The plugin and the containers never see the registry: a container receives the renderer. The chain lives in the state through `fragmentsPlugin`; the constructor and `updateState` add the plugin when the state lacks it, so an app's `dispatchTransaction` must apply to `view.state` (`view.updateState(view.state.apply(tr))`), not to a copy of the state it kept.
  *
  * Rendering. After every state the view fills the first dirty entry, and only that one: a `fill` that writes its DOM before its first wait (`OverflowBox` does) is rendered inside `updateState`, one that writes after a wait (a page an engine cuts) is painted and has the selection drawn again when its answer arrives, and when its promise settles the view dispatches the `refilled` transaction. A fill that rejects is answered by the `handleFillRejected` prop, `(view, error, container, from)`, which may return a fill result, or a promise of one, to stand for it; unanswered, the error is raised apart and the entry stays dirty until the next update fills it again, so the fragments after it wait. That transaction is the ripple: an entry whose `to` and hint land where they were leaves the next entry as it was and the work ends; one whose `to` moved sets the next entry's `from` and marks it dirty, and the next update fills it; one whose hint alone moved marks the next entry dirty, since it was cut under the old hint, and every fill is handed the hint before it as its fourth argument, so the refill cuts under the new one. A hint is compared by its JSON, so a fragmentainer keeps positions out of it or relative, or a shift alone counts as a change. A fill that cut with no entry after it appends one, through the factory; an entry that comes to run to the end drops the ones after it. A fragment whose entry is clean keeps its DOM, rendered when its `from` was another number: the view translates its positions by the difference, which is uniform because no step touched the fragment's range. The ripple keeps pace with the reader: an entry is filled at once when it is the first, the head's or one before it, or when the fragment before it starts above the foot of the viewport (the window's, clipped by every scrolling ancestor), so the pages in view and one more are filled before the next paint; the rest is filled in idle slices of `SLICE_MS`, each taken within `SLICE_DEADLINE_MS` when the browser offers no idle time, and an input ends the slice it falls in. While a slice is awaited `rippling` is true, so a reads loop that finds a dirty entry and no fill in flight tells a ripple paused from one stopped short; parked faces are not swept while it is.
  *
@@ -20,7 +20,7 @@
  *
  * Scrolling. A transaction that asks for it (`scrollIntoView`) scrolls the head's rectangle into the view of every scrolling ancestor, as `EditorView` does, with `scrollThreshold`, `scrollMargin` and `handleScrollToSelection` read as it reads them. The head may stand in a fragment still to be filled when the transaction is applied, so the scroll is made again at each update until the chain has settled up to the head.
 
-Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. A node decoration's `class` goes on every shown piece of its node, and a node selection's node gets `ProseMirror-selectednode` the same way, pieces divided across fragments included; measuring copies are never touched. A selection paints each of its `ranges` (a cell selection's cells), and one that says it is not `visible` paints none. Widget decorations, and a node decoration's other attributes, are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
+Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. A node decoration's `class` goes on every shown piece of its node, and a node selection's node gets `ProseMirror-selectednode` the same way, pieces divided across fragments included; measuring copies are never touched. A selection paints each of its `ranges` (a cell selection's cells), and one that says it is not `visible` paints none. Widget decorations, and a node decoration's other attributes, are ignored. Highlight names are global to the page, so two views in one document each take a `highlightScope` prop: every name the view paints, the selection's `fragview-selection` and each class, gets `-` and the scope after it (`mark-a`, `fragview-selection-a`), the view's default look for the selection is installed per scope, and `destroy` releases only its own names. A view with no scope paints the bare names, as before.
  *
  * Node views. A leaf, or a block whose view has no content hole, may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the earliest page that holds the node whole, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's view is placed only where the block stands whole in one page, and a block the cut divided keeps its drawing on each page that shows a piece. The inside of a placed block face is the face's, as `prosemirror-view` treats a node view without `contentDOM`: a position inside answers the wrapper's edge and no `nodeDOM`, a selection inside writes no browser selection and is handed to the face's `setSelection`, and nothing inside is marked. Text and a view that answers a `contentDOM` are refused.
  *
@@ -51,7 +51,7 @@ import { Faces } from './faces.js';
 
 /**
  * The props: `EditorView`'s direct props, read through `someProp` as `EditorView` reads them, the factory, the words registry and the window policy.
- * @typedef {{ state: EditorState, containers: ContainerFactory, words?: Partial<Words>, domSerializer?: DOMSerializer, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
+ * @typedef {{ state: EditorState, containers: ContainerFactory, words?: Partial<Words>, highlightScope?: string, domSerializer?: DOMSerializer, window?: WindowPolicy, dispatchTransaction?: (this: FragmentedView, tr: Transaction) => void, [prop: string]: any }} FragmentedViewProps
  */
 
 /** @typedef {{ node: globalThis.Node, offset: number }} DOMPoint */
@@ -90,14 +90,15 @@ const INPUTS = ['keydown', 'mousedown', 'touchstart', 'beforeinput', 'compositio
 export const SELECTION_HIGHLIGHT = 'fragview-selection';
 
 /**
- * The view's default look for the selection, inserted first in the document's head so an author's sheet overrides it: the highlight painted, the browser's own selection transparent inside the view.
+ * The view's default look for the selection, inserted first in the document's head so an author's sheet overrides it: the highlight painted, the browser's own selection transparent inside the view. One per scope (`highlightScope`), the unscoped view's with no suffix.
  * @param {Document} doc
+ * @param {string} [suffix] The scope's suffix on the highlight's name.
  */
-function installSelectionStyle(doc) {
-  if (!(/** @type {any} */ (globalThis).CSS?.highlights) || doc.querySelector('style[data-fragview]')) return;
+function installSelectionStyle(doc, suffix = '') {
+  if (!(/** @type {any} */ (globalThis).CSS?.highlights) || doc.querySelector(`style[data-fragview="${suffix.slice(1)}"]`)) return;
   const style = doc.createElement('style');
-  style.dataset.fragview = '';
-  style.textContent = `::highlight(${SELECTION_HIGHLIGHT}) { background-color: #b4d5fe; }\n.fragview ::selection { background-color: transparent; }`;
+  style.dataset.fragview = suffix.slice(1);
+  style.textContent = `::highlight(${SELECTION_HIGHLIGHT}${suffix}) { background-color: #b4d5fe; }\n.fragview ::selection { background-color: transparent; }`;
   doc.head.prepend(style);
 }
 
@@ -341,7 +342,9 @@ export class FragmentedView {
     this.dragging = null;
     /** @type {[globalThis.Node | null, number, globalThis.Node | null, number] | null} */
     this.lastSelection = null;
-    /** @type {Set<string>} */
+    /** What the view appends to every highlight name it paints: `-` and the `highlightScope` prop, or nothing. Highlight names are global to the page, so two views in one document name a scope each. */
+    this.highlightSuffix = props.highlightScope ? `-${props.highlightScope}` : '';
+    /** The names of the decoration highlights the last paint set, suffix included. @type {Set<string>} */
     this.highlightNames = new Set();
     /** The classes the last paint put on shown pieces of nodes: a node selection's and node decorations'. @type {[Element, string][]} */
     this.nodeClasses = [];
@@ -371,7 +374,7 @@ export class FragmentedView {
     for (const type of INPUTS) this.dom.addEventListener(type, this.countInput, true);
     this.onSelectionChange = () => { if (this.ownsSelection()) this.noteDrop() || this.readSelection(); };
     this.dom.ownerDocument.addEventListener('selectionchange', this.onSelectionChange);
-    installSelectionStyle(this.dom.ownerDocument);
+    installSelectionStyle(this.dom.ownerDocument, this.highlightSuffix);
     /** Foreign writes answered per entry, for one document. @type {{ doc: PMNode | null, counts: Map<number, number>, warned: boolean }} */
     this.foreign = { doc: null, counts: new Map(), warned: false };
     this.foreignObserver = new MutationObserver((records) => this.onMutations(records));
@@ -1196,8 +1199,8 @@ export class FragmentedView {
       if (!start || !end) continue;
       ranges.push(staticRange(start, end));
     }
-    if (ranges.length) highlights.set(SELECTION_HIGHLIGHT, new /** @type {any} */ (globalThis).Highlight(...ranges));
-    else highlights.delete(SELECTION_HIGHLIGHT);
+    if (ranges.length) highlights.set(SELECTION_HIGHLIGHT + this.highlightSuffix, new /** @type {any} */ (globalThis).Highlight(...ranges));
+    else highlights.delete(SELECTION_HIGHLIGHT + this.highlightSuffix);
   }
 
   /**
@@ -1284,8 +1287,9 @@ export class FragmentedView {
         else this.painted.set(entry.key, cached);
       }
       for (const [cls, range] of cached.ranges) {
-        if (!byClass.has(cls)) byClass.set(cls, []);
-        /** @type {StaticRange[]} */ (byClass.get(cls)).push(range);
+        const name = cls + this.highlightSuffix;
+        if (!byClass.has(name)) byClass.set(name, []);
+        /** @type {StaticRange[]} */ (byClass.get(name)).push(range);
       }
     }
     for (const name of this.highlightNames) if (!byClass.has(name)) highlights.delete(name);
@@ -1818,7 +1822,7 @@ export class FragmentedView {
     this.faces.destroy();
     const highlights = /** @type {any} */ (globalThis).CSS?.highlights;
     for (const name of this.highlightNames) highlights?.delete(name);
-    highlights?.delete(SELECTION_HIGHLIGHT);
+    highlights?.delete(SELECTION_HIGHLIGHT + this.highlightSuffix);
     this.containers.clear();
     this.dom.remove();
   }

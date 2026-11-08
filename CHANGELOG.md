@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Two views in one document paint their own highlights. Highlight names are global to the page, so two views that decorated one class, or drew a selection, overwrote each other's `Highlight`, and destroying one deleted the other's selection. The `highlightScope` prop names a view: every name it paints, the selection's `fragview-selection` and each decoration class, takes `-` and the scope after it (`mark-a`, `fragview-selection-a`), the default selection look is installed once per scope, and `destroy` releases only the view's own names. A view with no scope paints the bare names as before, so an author's `::highlight(mark)` rule still holds for the one-view page; a host with several views writes `::highlight(mark-a)`. Held in `test/highlight-scope.test.js`, red before the change (`architecture-project-global-singletons`).
+
 ## 0.1.4 — 2026-11-08
 
 - A host can give the pages its own serializer. The `domSerializer` prop, direct or from a plugin, is a `DOMSerializer` whose node and mark specs the slice renderer writes with, as `clipboardSerializer` is for `EditorView`'s copy; a host used to patch `schema.cached.domSerializer` to resolve its images' `src`. `sliceRenderer(words, faces, domSerializer)` takes it as a third argument, and a new value through `setProps` invalidates the chain. `setProps` also rebuilt the renderer from the new props alone, so a call that gave only `domSerializer` or `words` dropped the other's earlier value; it reads the merged props now. The case is `a domSerializer prop writes the pages with the host's node specs` in `test/slice-renderer.test.js`.
