@@ -220,3 +220,14 @@ test('an entry with no shows behaves as before: a mark in the entry before leave
   const marked = state.apply(state.tr.addMark(d.tag.s, d.tag.s + 3, schema.marks.em.create()));
   assert.deepEqual(entries(marked).map((e) => e.dirty), [true, false]);
 });
+
+test('a state reopened from JSON keeps its chain, keys, ranges and flags', () => {
+  const d = doc(p('one'), p('<cut>two'));
+  const plugin = fragmentsPlugin();
+  let state = EditorState.create({ doc: d, plugins: [plugin] });
+  state = state.apply(appended(refilled(state.tr, 0, d.tag.cut, 7, { from: 2, to: 4 }), d.tag.cut));
+  const json = JSON.parse(JSON.stringify(state.toJSON({ fragments: plugin })));
+  const back = EditorState.fromJSON({ schema, plugins: [plugin] }, json, { fragments: plugin });
+  assert.deepEqual(entries(back), entries(state));
+  assert.equal(entries(back).length, 2);
+});

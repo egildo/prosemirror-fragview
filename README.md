@@ -18,6 +18,10 @@ Editing, selection and composition are verified in Chromium only: the harness an
 
 The `attributes` prop, direct or from a plugin, an object or a function of the state, puts its attributes on `view.dom` as `EditorView` does: classes and styles add up after the view's own, for any other name the first to give it wins, and what a prop stops giving is removed; without a `role` from any of them the root is `role="textbox"` with `aria-multiline="true"`, and `contenteditable`, `translate` and the writer opt-outs (`data-gramm`, `data-gramm_editor`, `data-enable-grammarly`, `data-lt-active`) stay the view's. The root carries the role and the accessible name only: the fragments inside are rebuilt at every fill, and what assistive technology makes of that is measured by nobody yet.
 
+## The DOM serializer
+
+The `domSerializer` prop, direct or from a plugin, is a `DOMSerializer` whose node and mark specs the pages are written with, as `clipboardSerializer` is for `EditorView`'s copy: a host that must resolve its images' `src`, or draw a node otherwise than the schema's `toDOM` does, builds one with `new DOMSerializer(nodes, marks)` and passes it. Without it the pages use the schema's own serializer. A new value invalidates the chain.
+
 ## Node views
 
 A leaf node type, or a block whose view has no content hole, may have a node view, through the `nodeViews` prop or a plugin's `props.nodeViews`, in `prosemirror-view`'s shape. The constructor receives `(node, view, getPos, decorations)`, where `decorations` are the node decorations whose range is exactly the node's, as `prosemirror-view` hands its outer decorations, and `getPos()` already answers the node's position while the constructor runs. A node view for text throws a `RangeError` at the prop. A view that answers a `contentDOM` is refused when it is made, its error raised apart while the node keeps its drawing, since a content hole would be divided across fragments.

@@ -26,3 +26,11 @@ test('redraw at a position refills only the fragment that shows it, in the same 
   assert.deepEqual(r.refilled, [r.holder]);
   assert.ok(r.kept);
 });
+
+test('nodeDOM of a node that opens at a cut inside another that opens there is its element', () => {
+  assert.equal(r.nested.cut, r.nested.section + 2, 'the cut opens the section and its first paragraph');
+  assert.equal(r.nested.section_dom, 'SECTION');
+  assert.equal(r.nested.paragraph_dom, 'P');
+  assert.equal(r.nested.paragraph_text, 'first');
+  assert.ok(r.nested.section_in_second);
+});
