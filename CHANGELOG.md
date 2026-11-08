@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3 (2026-11-08)
+
+- A face offered a new node after a fill is asked `update` with `getPos()` answering the position it is offered, as the constructor is, and as `prosemirror-view` answers inside `update`. It answered `undefined` there, since the face was still parked. A view that lays out its inside by it read wrong positions: `prosemirror-spreads`' table numbered every cell from −1, so landing a cell's value closed its buffer, removed the focused input and focused no cell, and the focus fell to the body.
+
 ## 0.1.2 (2026-11-08)
 
 Fixes from the assessment of 2026-11-07.
