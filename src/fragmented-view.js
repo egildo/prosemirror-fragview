@@ -10,7 +10,7 @@
  *
  * The window policy. `window: { build: 'all' }`, the default, builds every fragment. `window: { build: 'near', margin: 1 }` builds the fragments whose elements meet the browser's viewport, `margin` more on each side, and the one holding the selection's head; the others are entries with a placeholder in their place, as tall as the last built box, and the last entry, when it is unbuilt and runs to the end, stands for the rest of the document: as many boxes as the positions left divided by the mean span of the built ones. A dirty entry is filled when it is near or when a near entry follows it (the ripple must pass it to know where the near one starts), and a fragment filled only to be passed is unbuilt again. An `IntersectionObserver` on the placeholders asks for a new pass when one comes into view. `coordsAtPos` for a position in an unbuilt fragment answers an estimate, a point in the placeholder's box at the position's share of the entry's range, marked `estimate: true`, rather than building the fragment, because a geometry query that wrote DOM would let a read cause a fill, and the fill's answer arrives in a promise; `domAtPos` throws for it.
  *
- * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word), except that a caret at the edge of its textblock deletes nothing, as in `prosemirror-view`: the join across blocks is the commands', which honour `isolating`. The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. `handleDOMEvents` runs first for every event the view listens to, and the view listens to every event a `handleDOMEvents` names, in its direct props or in any plugin's, `focus` and `blur` included. A paste asks `transformPastedHTML` or `transformPastedText` before it parses and `transformPasted` after, and a clipboard with nothing to parse (a file alone) still asks `handlePaste`, with an empty slice. A click asks `handleClickOn` for each node around it, innermost first, then `handleClick`, at the release; a double or triple click asks `handleDoubleClickOn` and `handleDoubleClick`, or the triple forms, at the press. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root, and a node view's `stopEvent` answers for its element.
+ * Input. Every editing default is the model's: the root element is contenteditable so the browser draws the caret and moves it (arrows, clicks, Shift-extension), but no input is left to the browser's DOM editing. `keydown` asks `handleKeyDown` (the keymap plugins), and an unhandled key goes on to `beforeinput`, whose default is applied to the model and prevented: typed text through `handleTextInput`, Enter as a split, Shift-Enter as a parsed `<br>`, every deletion over the browser's own target range (a grapheme, a word), except that a caret at the edge of its textblock deletes nothing, as in `prosemirror-view`: the join across blocks is the commands', which honour `isolating`. The application is synchronous, so a key that arrives while a fill's promise is pending reads a state that already holds the key before it. `paste` goes through `handlePaste` with a slice parsed by the schema's `DOMParser`; `copy` and `cut` write the model's selection (the browser's holds only the head's fragment) as `prosemirror-view`'s clipboard does: `transformCopied`, `clipboardSerializer` and `clipboardTextSerializer` applied, and the slice's open depths and context in the first element's `data-pm-slice`. `paste` reads that attribute back as `prosemirror-view` does: whitespace preserved, the open depths and the context restored, so a slice copied from a ProseMirror editor comes back as it was copied. The arrow keys whose move involves a node selection are `prosemirror-view`'s own (`captureKeyDown`'s `selectHorizontally` and `selectVertically`): into and out of a block atom, over an inline one, and a click on a selectable atom selects it, its text included, since a node drawn with no content hole is `contenteditable="false"`; every other arrow is the browser's. Home and End are the view's, since Chromium on macOS scrolls on them and leaves the caret: the head goes to the start or the end of its visible line, read from the line's rects, Shift extending the selection, a node selection standing, and with Cmd, Ctrl or Alt the keys stay the browser's. `handleDOMEvents` runs first for every event the view listens to, and the view listens to every event a `handleDOMEvents` names, in its direct props or in any plugin's, `focus` and `blur` included. A paste asks `transformPastedHTML` or `transformPastedText` before it parses and `transformPasted` after, and a clipboard with nothing to parse (a file alone) still asks `handlePaste`, with an empty slice. A click asks `handleClickOn` for each node around it, innermost first, then `handleClick`, at the release; a double or triple click asks `handleDoubleClickOn` and `handleDoubleClick`, or the triple forms, at the press. An event from a form control drawn inside a page, or from an editing host nested in a leaf's drawing, is that element's and reaches neither (`ownedInside`); an element with other input of its own stops propagation at its own root, and a node view's `stopEvent` answers for its element.
  *
  * The selection. The model's selection is the truth, and the view stands down from the browser's while focus is outside the root or on an element inside it that keeps its own input (`ownsSelection`), so a control focused inside a page keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is the view's as the root is. `hasFocus()` itself is `prosemirror-view`'s rule, the root and nothing else. The selection is painted with the CSS Custom Highlight API as one `Highlight` named `fragview-selection`, one `StaticRange` per built fragment it crosses; the browser's own selection is made transparent inside the view and stays inside the fragment that holds the head, its anchor drawn at that fragment's edge when the model's anchor lies outside it. The browser still moves the head (arrows, Shift-extension, Shift-click across boxes, since every box is in one editing host), and a read-back takes the drawn edge for the model's anchor. A node selection the browser drops (it clears a range drawn around an uneditable block that holds no caret position, once layout changes under it) stands, since nothing but input moves one: no change of the browser's selection is read after it until the next draw or a press of the pointer. A position at a cut belongs to the next fragment: the caret stands at the start of the next box. ArrowLeft from there is the view's own move, one character back into the previous box, because the browser's move would land on the end of the previous box, the same position. The pointer is the view's own too: a single press records the model position it selects from (the model's anchor, with Shift), a move with the button held, or a scroll under it, sets the head to the position under the pointer, and nothing is read from the browser's own drag, which cannot cross a cut or survive a scrolled pane; a double or triple click that no handler takes is left to the browser.
  *
@@ -1432,7 +1432,7 @@ export class FragmentedView {
   }
 
   /**
-   * The arrow keys whose move involves a node selection, as `prosemirror-view`'s `captureKeyDown` takes them (`selectHorizontally`, `selectVertically`): into and out of a block atom the browser can put no caret in (a horizontal rule, a facsimile drawn `contenteditable="false"`), over an inline atom, and Shift extending over one. Any other arrow is the browser's.
+   * The arrow keys whose move involves a node selection, as `prosemirror-view`'s `captureKeyDown` takes them (`selectHorizontally`, `selectVertically`): into and out of a block atom the browser can put no caret in (a horizontal rule, a facsimile drawn `contenteditable="false"`), over an inline atom, and Shift extending over one. Any other arrow is the browser's. Home and End without a modifier but Shift are the view's (`selectLineEdge`).
    * @param {KeyboardEvent} event
    */
   captureArrow(event) {
@@ -1443,6 +1443,8 @@ export class FragmentedView {
       case 'ArrowRight': return this.selectHorizontally(1, mods);
       case 'ArrowUp': return this.selectVertically(-1, mods);
       case 'ArrowDown': return this.selectVertically(1, mods);
+      case 'Home': return this.selectLineEdge(-1, mods);
+      case 'End': return this.selectLineEdge(1, mods);
       default: return false;
     }
   }
@@ -1515,6 +1517,40 @@ export class FragmentedView {
       return beyond ? this.applySelection(beyond) : false;
     }
     return false;
+  }
+
+  /**
+   * Home (`dir` −1) or End (1), with or without Shift: the head goes to the start or the end of its visible line, read from the line's rects, the anchor kept under Shift. A node selection stands. With Cmd, Ctrl or Alt the key is the browser's.
+   * @remarks
+   * Chromium on macOS scrolls the window on Home and End and leaves the caret where it is, in any contenteditable, `prosemirror-view`'s included (`docs/results.md`, "Home and End scroll the pages instead of moving the caret"); the paged layout is the view's, so the correction is too, ruled 2026-11-08. The visible line is the rects of the head's textblock, in the head's fragment, whose span holds the middle of the head's `coordsAtPos`; Home asks `posAtCoords` a pixel inside its left edge, End a pixel inside its right. A position whose character after it stands on another line (after the space a line wraps at, or at a cut) is stepped back towards the head, so an end of line stays on its line and on its page.
+   * @param {number} dir
+   * @param {string} mods
+   */
+  selectLineEdge(dir, mods) {
+    if (/[cma]/.test(mods)) return false;
+    const { selection, doc } = this.state;
+    if (selection instanceof NodeSelection) return true;
+    if (!(selection instanceof TextSelection) || !selection.$head.parent.isTextblock) return false;
+    const { $head } = selection;
+    const at = this.indexAt($head.pos), entry = this.entries[at];
+    if (!entry) return false;
+    const start = this.containerPoint(entry, Math.max($head.start(), entry.from));
+    const end = this.containerPoint(entry, Math.min($head.end(), entry.to ?? Infinity));
+    if (!start || !end) return false;
+    const caret = this.coordsAtPos($head.pos);
+    const y = (caret.top + caret.bottom) / 2;
+    const range = this.dom.ownerDocument.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    let left = Infinity, right = -Infinity;
+    for (const box of range.getClientRects()) if (box.top <= y && box.bottom >= y && box.right > box.left) { left = Math.min(left, box.left); right = Math.max(right, box.right); }
+    if (left > right) return false;
+    const found = this.posAtCoords({ left: dir < 0 ? left + 1 : right - 1, top: y });
+    if (!found) return false;
+    const onLine = (/** @type {number} */ pos) => { const c = this.coordsAtPos(pos); return this.indexAt(pos) === at && c.top <= y && c.bottom >= y; };
+    let pos = Math.min(Math.max(found.pos, $head.start()), $head.end());
+    while (pos !== $head.pos && !onLine(pos)) pos -= dir;
+    return this.applySelection(TextSelection.between(mods.includes('s') ? selection.$anchor : doc.resolve(pos), doc.resolve(pos)));
   }
 
   /**
