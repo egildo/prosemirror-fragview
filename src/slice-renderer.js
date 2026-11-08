@@ -24,7 +24,7 @@
  *
  * A node type whose spec says `unshown: true` (the studio's whitespace and comment leaves between blocks) is drawn as nothing: it keeps its positions and has no DOM, as the studio's page serializer does.
  *
- * A leaf with a node view is written as a STAND-IN (`standIn`): the wrapper is what the map records for the node, and its drawing has no entry.
+ * A node with a node view is written as a STAND-IN (`standIn`): the wrapper is what the map records for the node. A leaf's drawing has no entry; a block's keeps the entries it has without a wrapper, its rows and cells included, so a fragmentainer cuts the stand-in as it cuts the bare drawing.
  *
  * Shallow siblings, the dressing words, the `value` and the stamps map to no position: the map is what it was without them.
  *
@@ -42,11 +42,11 @@ export const TRAILING_BREAK = 'fragview-trailing-break';
 /** The attribute that carries a structured mark's instance on the element written for it. */
 export const INSTANCE_STAMP = 'data-txt-i';
 
-/** The attribute that marks a leaf's stand-in, the wrapper the view fills with its face. */
+/** The attribute that marks a stand-in, the wrapper the view fills with its face: empty, or `placed` while it holds the face. */
 export const FACE_STAMP = 'data-fragview-face';
 
 /**
- * Which leaf types have a node view, and the size of a node's face once it has one: what the view tells the renderer.
+ * Which node types have a node view, and the size of a leaf's face once it has one: what the view tells the renderer.
  * @typedef {{ has(type: import('prosemirror-model').NodeType): boolean, sizeOf(node: PMNode): { inline: number, block: number } | null }} Faces
  */
 
@@ -255,7 +255,9 @@ function render(words, doc, from, to, document, faces) {
     level = own - 1;
     if (faces?.has(node.type) && dom.nodeType === 1) {
       const wrapper = standIn(document, /** @type {HTMLElement} */ (dom), node, faces);
-      positions.set(wrapper, span);
+      // A block's drawing keeps its own entry, its content's included; the wrapper's is the node's alone.
+      if (node.isLeaf) positions.set(wrapper, span);
+      else { positions.set(dom, span); positions.set(wrapper, { start: span.start, end: span.end }); }
       DEPTHS.set(wrapper, own);
       return wrapper;
     }
@@ -338,7 +340,11 @@ function render(words, doc, from, to, document, faces) {
 
   writeSiblings(doc, $from.index(0), fragment);
   serializer.serializeFragment(slice.content, options, fragment);
-  for (const el of fragment.children) if (el.matches(carrying(words, words.split))) add(el, words.fragment);
+  for (const el of fragment.children) {
+    // A stand-in's drawing is the piece, as it is without the wrapper.
+    const piece = el.hasAttribute(FACE_STAMP) ? el.firstElementChild : el;
+    if (piece?.matches(carrying(words, words.split))) add(piece, words.fragment);
+  }
 
   // A mark's element was recorded before its content existed; its end is its last content's end. Inner marks were created after outer ones, so the reverse order settles the inner first.
   for (let i = marks.length - 1; i >= 0; i--) {
@@ -350,12 +356,12 @@ function render(words, doc, from, to, document, faces) {
 }
 
 /**
- * The stand-in of a leaf with a node view: a wrapper around what `toDOM` draws, which the position map records for the node and the view later fills with the face.
+ * The stand-in of a node with a node view: a wrapper around what `toDOM` draws, its content included for a block, which the position map records for the node and the view later fills with the face where the node stands whole.
  *
  * @remarks
  * The wrapper is the plainest box of its level, `display: block` around a block and `display: inline` around an inline node, because anything else moves what it wraps. Measured 2026-11-07 under a real paged-media engine's page: these two cut a document where no wrapper cuts it, a `width: 50%` image included; an `inline-block` collapses a percentage to nothing, and the engine's block walk skips a `display: contents` box and all it holds, so its page lost the leaf's height. The one exception is a block leaf drawn as an inline-level element: alone in its block, it is a line of its own there, which it is not when bare, so a block leaf's `toDOM` should draw a block-level box.
  *
- * Once the node has a face, the drawing is pinned to the face's border box, so the cut is made against what the page will show; an inline drawing is made `inline-block` for it, since an inline box takes no size.
+ * Once a leaf has a face, the drawing is pinned to the face's border box, so the cut is made against what the page will show; an inline drawing is made `inline-block` for it, since an inline box takes no size. A block's drawing is pinned to nothing: measured 2026-11-08, a table's height is a minimum, and a pinned table that is divided gives every piece the pinned height, so the row before the cut is stretched past the foot and shows on no page.
  * @param {Document} document
  * @param {HTMLElement} dom
  * @param {PMNode} node
@@ -366,7 +372,7 @@ function standIn(document, dom, node, faces) {
   wrapper.setAttribute(FACE_STAMP, '');
   wrapper.setAttribute('contenteditable', 'false');
   wrapper.style.display = node.isInline ? 'inline' : 'block';
-  const box = faces.sizeOf(node);
+  const box = node.isLeaf ? faces.sizeOf(node) : null;
   if (box) {
     Object.assign(dom.style, { boxSizing: 'border-box', inlineSize: box.inline + 'px', blockSize: box.block + 'px' });
     if (node.isInline) dom.style.display = 'inline-block';

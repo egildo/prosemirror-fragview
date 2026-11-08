@@ -16,17 +16,20 @@ Editing, selection and composition are verified in Chromium only: the harness an
 
 ## Node views
 
-A leaf node type may have a node view, through the `nodeViews` prop or a plugin's `props.nodeViews`, in `prosemirror-view`'s shape. The constructor receives `(node, view, getPos, decorations)`, with `decorations` always empty. A node view for a block or for text throws a `RangeError` at the prop, since a block may be divided across fragments and would need a view per piece.
+A leaf node type, or a block whose view has no content hole, may have a node view, through the `nodeViews` prop or a plugin's `props.nodeViews`, in `prosemirror-view`'s shape. The constructor receives `(node, view, getPos, decorations)`, where `decorations` are the node decorations whose range is exactly the node's, as `prosemirror-view` hands its outer decorations, and `getPos()` already answers the node's position while the constructor runs. A node view for text throws a `RangeError` at the prop. A view that answers a `contentDOM` is refused when it is made, its error raised apart while the node keeps its drawing, since a content hole would be divided across fragments.
 
-The element is shown once, in the page that holds the node. It keeps its state across refills and across a move to another page, and it leaves its page while the page fills. `update`, `destroy`, `selectNode`, `deselectNode`, `stopEvent` and `ignoreMutation` mean what they mean in `prosemirror-view`; `setSelection` and `multiType` are not read. `getPos` answers `undefined` while the element is off its page.
+The element is shown once, in the earliest page that holds the node whole. It keeps its state across refills and across a move to another page, and it leaves its page while the page fills. A block's view is placed only where the block stands whole in one page. A block the cut divides keeps `toDOM`'s drawing on every page that shows a piece, and the view warns once on the console, naming the type and position. The same holds for a leaf a page engine shows whole on two pages: the first has the face, the second its drawing. `update`, `destroy`, `selectNode`, `deselectNode`, `setSelection`, `stopEvent` and `ignoreMutation` mean what they mean in `prosemirror-view`; `multiType` is not read. `update(node, decorations)` is asked when the node changes and when its node decorations change, and a face that answers false is made again. `setSelection(anchor, head, root)` is asked when the model's selection lies inside a block's face, relative to the node's start; the view then writes no browser selection and marks nothing inside it. `getPos` answers `undefined` while the element is off its page.
 
-`toDOM` still matters, for three reasons:
+The face follows the cut, and the cut never follows the face. To keep a fitting block whole, give it `break-inside: avoid` in the document's CSS, which moves it in the view and the print alike; a block taller than the page area divides in both.
 
-- Every measuring copy of the node, and the print, is drawn from it. The view pins the drawing to the element's size once it has one, so a drawing of another size costs one more fill.
+`toDOM` still matters, for four reasons:
+
+- Every measuring copy of the node, and the print, is drawn from it. The view pins a leaf's drawing to the element's size once it has one, so a leaf drawn at another size costs one more fill.
+- A block's drawing is pinned to nothing, since a pinned table divided stretches the row before the cut past the page's foot. A block's view should draw at `toDOM`'s box; one that does not is warned once by its type and kept, and the cuts are made at `toDOM`'s size.
 - A block leaf's `toDOM` should draw a block-level box, or the cuts differ from a print that has no wrapper.
-- A leaf that shows words should show the same words in both, or a guard comparing the pages with the print will refuse.
+- A node that shows words should show the same words in both, or a guard comparing the pages with the print will refuse.
 
-In every copy the leaf stands in a wrapper marked `data-fragview-face`, which is what `nodeDOM` answers. A CSS selector on the leaf's siblings or parent sees the wrapper. For what is refused, a host may position its own element over a static drawing from a plugin view, reading `nodeDOM`; nothing here helps or hinders that.
+In every copy the node stands in a wrapper marked `data-fragview-face`, which is what `nodeDOM` answers; a block's wrapper holds its whole drawing, its content mapped as without the wrapper. The wrapper that holds the element carries `data-fragview-face="placed"`, and one that holds a drawing keeps the empty value, so a host reads `view.nodeDOM(pos)?.getAttribute('data-fragview-face')` to know whether the element is shown, and CSS can dress a divided drawing. A CSS selector on the node's siblings or parent sees the wrapper. For a divided block, a host may position its own element over the drawing from a plugin view, reading `nodeDOM`; nothing here helps or hinders that.
 
 ## Tooling
 
