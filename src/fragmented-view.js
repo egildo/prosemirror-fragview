@@ -22,9 +22,9 @@
 
 Decorations. Inline decorations with a class are painted with the CSS Custom Highlight API (one `Highlight` per class, named by the class, so author CSS styles them with `::highlight(name)`), clipped to each built fragment, and ignored where the browser lacks the API. A fragment keeps its ranges while its DOM and the decorations over its range are unchanged, so a key repaints only what it refilled. A node decoration's `class` goes on every shown piece of its node, and a node selection's node gets `ProseMirror-selectednode` the same way, pieces divided across fragments included; measuring copies are never touched. A selection paints each of its `ranges` (a cell selection's cells), and one that says it is not `visible` paints none. Widget decorations, and a node decoration's other attributes, are ignored. Highlight names are global to the page: two views painting one class name share one highlight, the selection's included.
  *
- * Node views. A leaf node type may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the page that holds the node, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's is refused by name at the prop.
+ * Node views. A leaf, or a block whose view has no content hole, may have one, in `prosemirror-view`'s shape: the host's element is shown once, in the shown copy of the earliest page that holds the node whole, and kept across refills and across a move to another page; every measuring copy holds a stand-in drawn from `toDOM`, which stays what prints (`faces.js`). A block's view is placed only where the block stands whole in one page, and a block the cut divided keeps its drawing on each page that shows a piece. The inside of a placed block face is the face's, as `prosemirror-view` treats a node view without `contentDOM`: a position inside answers the wrapper's edge and no `nodeDOM`, a selection inside writes no browser selection and is handed to the face's `setSelection`, and nothing inside is marked. Text and a view that answers a `contentDOM` are refused.
  *
- * What the view does not do yet, besides the above: block node views, mark views, drag and drop (both halves are refused), the `attributes` prop, and bidirectional text in `endOfTextblock`.
+ * What the view does not do yet, besides the above: a node view with a content hole, mark views, drag and drop (both halves are refused), the `attributes` prop, and bidirectional text in `endOfTextblock`.
  *
  * @packageDocumentation
  */
@@ -33,7 +33,7 @@ import { AllSelection, NodeSelection, Selection, TextSelection } from 'prosemirr
 import { DOMParser as PMDOMParser, DOMSerializer, Fragment, Slice } from 'prosemirror-model';
 import { canSplit } from 'prosemirror-transform';
 import { fragmentsPlugin, fragmentsKey, refilled, appended, dirtied } from './fragments-plugin.js';
-import { sliceRenderer, openedAt, DEPTHS, refuseMixedMarks } from './slice-renderer.js';
+import { sliceRenderer, openedAt, DEPTHS, refuseMixedMarks, FACE_STAMP } from './slice-renderer.js';
 import { Faces } from './faces.js';
 
 /** @import { EditorState, Transaction, Plugin, PluginView } from 'prosemirror-state' */
@@ -516,11 +516,11 @@ export class FragmentedView {
   }
 
   /**
-   * Whether an element inside the root keeps its own input and holds none of the document's text: a form control, or anything in a leaf's drawing.
+   * Whether an element inside the root keeps its own input and holds none of the document's text: a form control, or anything in a leaf's drawing or a placed face.
    * @param {Element} element
    */
   keepsInput(element) {
-    return CONTROLS.has(element.nodeName) || this.leafAround(element) != null;
+    return CONTROLS.has(element.nodeName) || this.faceAround(element) != null;
   }
 
   /** Whether the browser's selection is the view's to read and write: focus on the root, or on something inside it that holds the document's text (a mark or a block with a `tabindex`, an editing host around a content hole). Narrower than `hasFocus()`'s complement: only an element that keeps its own input makes the view stand down. */
@@ -832,6 +832,10 @@ export class FragmentedView {
    * @returns {DOMPoint | null}
    */
   pointAt(pos) {
+    // A position inside a placed block face resolves to the node's border, as `prosemirror-view` resolves one inside a node view with no content hole.
+    const face = this.faces.inside(pos);
+    const wrapper = face?.wrapper, parent = wrapper?.parentNode;
+    if (wrapper && parent) return { node: parent, offset: Array.prototype.indexOf.call(parent.childNodes, wrapper) };
     const entries = this.entries;
     const at = this.indexAt(pos);
     if (at < 0) return null;
@@ -906,13 +910,13 @@ export class FragmentedView {
   }
 
   /**
-   * The element that renders the node starting at `pos`; null for a text node, or when no fragment shows it.
+   * The element that renders the node starting at `pos`; null for a text node, for a node inside a placed block face, or when no fragment shows it.
    * @param {number} pos
    */
   nodeDOM(pos) {
     const { doc } = this.state;
     const node = doc.nodeAt(pos);
-    if (!node || node.isText) return null;
+    if (!node || node.isText || this.faces.inside(pos)) return null;
     // A node that opens at a cut starts where the box before it ends, and only the box after it shows it.
     const entries = this.entries;
     const opens = entries.findIndex((e, i) => i > 0 && entries[i - 1].to != null && openedAt(doc, /** @type {number} */ (entries[i - 1].to)) === pos);
@@ -973,7 +977,7 @@ export class FragmentedView {
   }
 
   /**
-   * The position at viewport coordinates, through the browser's caret hit test; `inside` is the position of a leaf node under the point, else of the textblock the position lies in, else −1.
+   * The position at viewport coordinates, through the browser's caret hit test; `inside` is the position of a leaf node or a placed face under the point, else of the textblock the position lies in, else −1. Over a placed block face both answer the node's position.
    * @param {{ left: number, top: number }} coords
    * @returns {{ pos: number, inside: number } | null}
    */
@@ -992,24 +996,25 @@ export class FragmentedView {
     // A fragment not yet refilled answers the positions of the document it was filled from.
     if (pos == null || pos > this.state.doc.content.size) return null;
     const hit = doc.elementFromPoint(left, top);
-    const leaf = this.leafAround(hit);
-    if (leaf != null) return { pos, inside: leaf };
+    const leaf = this.faceAround(hit);
+    if (leaf != null) return { pos: this.state.doc.nodeAt(leaf)?.isLeaf ? pos : leaf, inside: leaf };
     const $pos = this.state.doc.resolve(pos);
     return { pos, inside: $pos.depth ? $pos.before() : -1 };
   }
 
   /**
-   * The position of the leaf node whose drawing holds `node`, or null: the nearest element up from it that spans exactly a leaf node, so an atom that shows text is found as an empty one is.
+   * The position of the node drawn as one unit that holds `node`, or null: the nearest element up from it that spans exactly a leaf node, so an atom that shows text is found as an empty one is, or a wrapper holding a placed face.
    * @param {globalThis.Node | null} node
    * @returns {number | null}
    */
-  leafAround(node) {
+  faceAround(node) {
     for (let el = node; el && el !== this.dom && el.parentNode && this.dom.contains(el); el = el.parentNode) {
       const index = Array.prototype.indexOf.call(el.parentNode.childNodes, el);
-      const leaf = this.posAt(el.parentNode, index);
+      const at = this.posAt(el.parentNode, index);
       // A fragment not yet refilled answers the positions of the document it was filled from, which may lie past this one's end.
-      const found = leaf == null || leaf < 0 || leaf > this.state.doc.content.size ? null : this.state.doc.nodeAt(leaf);
-      if (found && found.isLeaf && !found.isText && this.posAt(el.parentNode, index + 1) === leaf + found.nodeSize) return leaf;
+      const found = at == null || at < 0 || at > this.state.doc.content.size ? null : this.state.doc.nodeAt(at);
+      if (!found || found.isText || (!found.isLeaf && /** @type {Element} */ (el).getAttribute?.(FACE_STAMP) !== 'placed')) continue;
+      if (this.posAt(el.parentNode, index + 1) === at + found.nodeSize) return at;
     }
     return null;
   }
@@ -1067,6 +1072,8 @@ export class FragmentedView {
     this.drawnInputs = this.inputs;
     this.drawnFill = this.headFill();
     const { selection } = this.state;
+    // A selection inside a placed block face is the face's: it holds its own input.
+    if (this.faces.selectInside(selection.anchor, selection.head)) return;
     let anchor, head;
     if (selection instanceof NodeSelection) {
       const dom = this.nodeDOM(selection.from);
@@ -1093,11 +1100,13 @@ export class FragmentedView {
     this.lastSelection = [domSelection.anchorNode, domSelection.anchorOffset, domSelection.focusNode, domSelection.focusOffset];
   }
 
-  /** Read the browser's selection back into the model when the browser moved it (a click, an arrow, a Shift-extension). Under an element that keeps its own input the browser's selection is no one's: it stands on that element's drawing. */
+  /** Read the browser's selection back into the model when the browser moved it (a click, an arrow, a Shift-extension). Under an element that keeps its own input the browser's selection is no one's: it stands on that element's drawing. So is one inside a placed block face, which holds its own. */
   readSelection() {
     if (!this.ownsSelection() || this.composing || this.pointer?.moved || this.dropped) return;
     const domSelection = this.dom.ownerDocument.getSelection();
     if (!domSelection || !domSelection.anchorNode || !this.dom.contains(domSelection.anchorNode) || !this.dom.contains(domSelection.focusNode)) return;
+    const inFace = (/** @type {globalThis.Node | null} */ node) => !!this.faces.around(node) && !this.faces.around(node)?.node.isLeaf;
+    if (inFace(domSelection.anchorNode) || inFace(domSelection.focusNode)) return;
     const now = [domSelection.anchorNode, domSelection.anchorOffset, domSelection.focusNode, domSelection.focusOffset];
     if (this.lastSelection && now.every((v, i) => v === /** @type {any[]} */ (this.lastSelection)[i])) return;
     this.lastSelection = /** @type {any} */ (now);
@@ -1119,6 +1128,7 @@ export class FragmentedView {
     const sets = this.decorationSets();
     this.paintDecorations(sets);
     this.paintNodes(sets);
+    this.faces.decorate(sets);
   }
 
   /** One `StaticRange` per built fragment each of the model's selection's ranges crosses (a cell selection has one per cell), in the `fragview-selection` highlight; none for a selection that says it is not `visible`. */
@@ -1157,15 +1167,16 @@ export class FragmentedView {
   }
 
   /**
-   * The classes that go on nodes' elements: `ProseMirror-selectednode` on every shown piece of a node selection's node (a leaf with a node view is the face's to mark, in `faces.js`), and a node decoration's `class` on every shown piece of its node. Only the containers' shown DOM is touched, never a measuring copy. ponytail: a node decoration's other attributes (`style`, `nodeName`) are ignored.
+   * The classes that go on nodes' elements: `ProseMirror-selectednode` on every shown piece of a node selection's node (a leaf with a node view, or a block with a placed face, is the face's to mark, in `faces.js`; a divided block's pieces are marked here), and a node decoration's `class` on every shown piece of its node. Nothing inside a placed block face is marked, since its inside is the face's. Only the containers' shown DOM is touched, never a measuring copy. ponytail: a node decoration's other attributes (`style`, `nodeName`) are ignored.
    * @param {any[]} sets
    */
   paintNodes(sets) {
     const { selection } = this.state;
     /** @type {[Element, string][]} */
     const next = [];
-    const mark = (/** @type {number} */ from, /** @type {string[]} */ classes) => { for (const el of this.shownPieces(from)) for (const cls of classes) next.push([el, cls]); };
-    if (selection instanceof NodeSelection && !this.faces.has(selection.node.type)) mark(selection.from, ['ProseMirror-selectednode']);
+    const mark = (/** @type {number} */ from, /** @type {string[]} */ classes) => { if (!this.faces.inside(from)) for (const el of this.shownPieces(from)) for (const cls of classes) next.push([el, cls]); };
+    const faced = selection instanceof NodeSelection && this.faces.has(selection.node.type) && (selection.node.isLeaf || !!this.faces.placedFor(selection.node));
+    if (selection instanceof NodeSelection && !faced) mark(selection.from, ['ProseMirror-selectednode']);
     for (const set of sets) for (const d of set.find()) if (!d.inline && !d.widget && d.type.attrs?.class) mark(d.from, d.type.attrs.class.split(/\s+/).filter(Boolean));
     for (const [el, cls] of this.nodeClasses) el.classList.remove(cls);
     for (const [el, cls] of next) el.classList.add(cls);
@@ -1242,7 +1253,7 @@ export class FragmentedView {
     const inside = path.slice(0, path.indexOf(this.dom));
     const face = inside.map((node) => this.faces.byDom.get(node)).find(Boolean);
     if (face?.view.stopEvent) return face.view.stopEvent(event) === true;
-    return inside.some((node) => CONTROLS.has(node.nodeName)) || (!!inside[0]?.isContentEditable && this.leafAround(/** @type {globalThis.Node} */ (event.target)) != null);
+    return inside.some((node) => CONTROLS.has(node.nodeName)) || (!!inside[0]?.isContentEditable && this.faceAround(/** @type {globalThis.Node} */ (event.target)) != null);
   }
 
   /**
@@ -1417,7 +1428,7 @@ export class FragmentedView {
     if (selection instanceof TextSelection) {
       if (mods.includes('s')) {
         const { $head } = selection, node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
-        if (!node || node.isText || !node.isLeaf) return false;
+        if (!node || node.isText || !(node.isLeaf || this.faces.placedFor(node))) return false;
         return this.applySelection(new TextSelection(selection.$anchor, doc.resolve($head.pos + node.nodeSize * (dir < 0 ? -1 : 1))));
       } else if (!selection.empty) return false;
       else if (this.endOfTextblock(dir > 0 ? 'forward' : 'backward')) {
@@ -1425,7 +1436,7 @@ export class FragmentedView {
         return next instanceof NodeSelection ? this.applySelection(next) : false;
       } else if (!(MAC && mods.includes('m'))) {
         const { $head } = selection, node = $head.textOffset ? null : dir < 0 ? $head.nodeBefore : $head.nodeAfter;
-        if (!node || node.isText || !node.isAtom) return false;
+        if (!node || node.isText || !(node.isAtom || this.faces.placedFor(node))) return false;
         if (NodeSelection.isSelectable(node)) return this.applySelection(new NodeSelection(dir < 0 ? doc.resolve($head.pos - node.nodeSize) : $head));
         // The browser puts pointless caret positions around an uneditable inline node, so the caret is moved across it here.
         return this.applySelection(new TextSelection(doc.resolve(dir < 0 ? $head.pos - node.nodeSize : $head.pos + node.nodeSize)));
@@ -1691,7 +1702,7 @@ export class FragmentedView {
       const face = this.faces.around(record.target);
       const elements = record.type === 'childList' && ![...record.addedNodes, ...record.removedNodes].some((node) => node.nodeType === 3);
       if (face) { if (face.view.ignoreMutation?.(record) !== false) continue; }
-      else if (this.leafAround(record.target) != null) continue;
+      else if (this.faceAround(record.target) != null) continue;
       for (const [key, container] of this.containers) {
         if (!container.dom.contains(record.target)) continue;
         if (!face && elements && !this.strange(record, key)) break;

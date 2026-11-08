@@ -254,7 +254,7 @@ async function staleWindow() {
   v.dispatch(v.state.tr.delete(8, size - 2));
   const out = { connected: text.isConnected, size: v.state.doc.content.size, stale: /** @type {any} */ (null), leaf: /** @type {any} */ (null), coords: /** @type {any} */ (null), read: /** @type {any} */ (undefined), target: /** @type {any} */ (undefined) };
   out.stale = v.posAt(text, 0);
-  try { out.leaf = v.leafAround(text); } catch (e) { out.leaf = String(e); }
+  try { out.leaf = v.faceAround(text); } catch (e) { out.leaf = String(e); }
   try { out.coords = v.posAtCoords({ left: rect.left + 2, top: rect.top + 5 }); } catch (e) { out.coords = String(e); }
   // The browser's selection read back from the stale page, and an input's target range there.
   v.focus();
