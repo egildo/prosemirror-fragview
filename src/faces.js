@@ -353,7 +353,10 @@ export class Faces {
     for (const face of this.all) {
       if (face.from !== key || face.key != null || face.node.type !== node.type || inDoc().has(face.node)) continue;
       const decorations = this.decorationsAt(node, pos);
-      if (face.view.update ? !face.view.update(node, decorations) : !node.sameMarkup(face.node)) continue;
+      // The face is parked, so `getPos` answers the position it is offered, as for the constructor: `prosemirror-view` answers it inside `update`, and a view that lays out its inside by it (prosemirror-spreads' table, its cells) would read `undefined`.
+      face.at = pos;
+      const taken = face.view.update ? face.view.update(node, decorations) : node.sameMarkup(face.node);
+      if (!taken) { face.at = null; continue; }
       this.forget(face);
       face.node = node;
       face.sig = signature(decorations);

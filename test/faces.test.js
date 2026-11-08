@@ -444,6 +444,23 @@ test('a table that fits has its face in its wrapper: getPos answered in the cons
   assert.equal(read.edge, true);
 });
 
+test('a cell written inside a placed face: update is asked with the new table while the face is parked, and getPos answers the table\'s position there', async () => {
+  // A view that lays out its inside by `getPos` (prosemirror-spreads' table: each cell's position, the selected one, the one being edited) must read it in `update` as `prosemirror-view` answers it.
+  await fresh('table', { table: true, box: 200 });
+  const read = await page.evaluate(async () => {
+    const { view, fixture } = window;
+    const face = view.dom.querySelector('.table-face');
+    const input = face.querySelector('.face-input');
+    input.focus();
+    input.dispatchEvent(new InputEvent('input', { data: 'x', bubbles: true }));
+    await fixture.settled();
+    return { same: view.dom.querySelector('.table-face') === face, pos: fixture.posOf('table'), updated: fixture.log.updated, focused: document.activeElement === input };
+  });
+  assert.equal(read.same, true);
+  assert.deepEqual(read.updated, [{ text: 'R1axR1', grid: [], pos: read.pos }]);
+  assert.equal(read.focused, true);
+});
+
 test('a table the cut divides keeps toDOM\'s drawing in a wrapper on each box, none placed, the constructor never runs, and one warning names it', async () => {
   await fresh('tall', { table: true, box: 200 });
   const read = await page.evaluate(() => {
@@ -504,10 +521,10 @@ test('a node decoration on the table that changes asks update once with it, and 
     const face = view.dom.querySelector('.table-face');
     view.dispatch(view.state.tr.setMeta(fixture.gridKey, 'b'));
     await fixture.settled();
-    return { same: view.dom.querySelector('.table-face') === face, log: { ...fixture.log } };
+    return { same: view.dom.querySelector('.table-face') === face, log: { ...fixture.log }, pos: fixture.posOf('table') };
   });
   assert.deepEqual(kept.log.decorations, [['a']]);
-  assert.deepEqual(kept.log.updated, [{ text: 'R1aR1b', grid: ['b'] }]);
+  assert.deepEqual(kept.log.updated, [{ text: 'R1aR1b', grid: ['b'], pos: kept.pos }]);
   assert.equal(kept.log.made, 1);
   assert.equal(kept.log.destroyed, 0);
   assert.equal(kept.same, true);

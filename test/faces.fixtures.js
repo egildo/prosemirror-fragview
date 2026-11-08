@@ -82,7 +82,7 @@ function tableFace(args, options) {
   return {
     dom,
     update(/** @type {any} */ next, /** @type {any[]} */ decos) {
-      log.updated.push({ text: next.textContent.slice(0, 6), grid: decos.map((d) => d.type.attrs['data-grid-state']) });
+      log.updated.push({ text: next.textContent.slice(0, 6), grid: decos.map((d) => d.type.attrs['data-grid-state']), pos: getPos() });
       if (options.update === false || next.type !== node.type) return false;
       node = next;
       /** @type {Element} */ (dom.firstElementChild).replaceWith(serializer.serializeNode(node));
