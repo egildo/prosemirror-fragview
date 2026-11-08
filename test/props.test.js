@@ -72,3 +72,57 @@ test('a double and a triple click ask their handlers, the On form for the textbl
   log = await call('read');
   assert.deepEqual(named(log, 'handleTripleClick'), [['handleTripleClickOn', 'paragraph', 0, true], ['handleTripleClick', 'number']]);
 });
+
+/** The root's attributes at each step of the fixture: without the prop, with a direct object and two plugins, after a state that changes a plugin's answer, after `setProps`, and after `setProps` drops the direct object. */
+let steps;
+const attributeSteps = async () => (steps ??= await call('attributesProp'));
+
+test('without any attributes prop the root has role="textbox" and aria-multiline="true", beside its own class and opt-outs', async () => {
+  const [plain] = await attributeSteps();
+  assert.equal(plain.role, 'textbox');
+  assert.equal(plain['aria-multiline'], 'true');
+  assert.equal(plain.class, 'fragview');
+  assert.equal(plain.translate, 'no');
+});
+
+test('a direct attributes object and a plugin\'s function of the state reach the root, the first to give a name winning, classes and styles adding up in plugin order', async () => {
+  const [, first] = await attributeSteps();
+  assert.equal(first['aria-label'], 'Body');
+  assert.equal(first['data-direct'], 'yes');
+  assert.deepEqual(first.class.split(' '), ['fragview', 'one', 'later']);
+  assert.match(first.style, /margin: 2px/);
+  assert.match(first.style, /color: red/);
+  assert.match(first.style, /white-space: break-spaces/);
+});
+
+test('a prop giving role replaces the default role and its aria-multiline', async () => {
+  const [, first] = await attributeSteps();
+  assert.equal(first.role, 'document');
+  assert.equal(first['aria-multiline'], undefined);
+});
+
+test('the attributes prop cannot override contenteditable, translate or the writer opt-outs', async () => {
+  const [, first] = await attributeSteps();
+  assert.equal(first.contenteditable, 'true');
+  assert.equal(first.translate, 'no');
+  assert.equal(first['data-gramm'], 'false');
+});
+
+test('a new state that changes a plugin\'s answer sets its new attributes and removes those it stopped giving', async () => {
+  const [, , changed] = await attributeSteps();
+  assert.deepEqual(changed.class.split(' ').sort(), ['fragview', 'later', 'many']);
+  assert.equal(changed['data-count'], '2');
+  assert.equal(changed['aria-label'], 'Body');
+});
+
+test('setProps({ attributes }) sets what the new object gives and removes what the old one gave', async () => {
+  const [, , , set, unset] = await attributeSteps();
+  assert.equal(set['data-set'], 'on');
+  assert.equal(set['data-direct'], undefined);
+  assert.equal(set['aria-label'], undefined);
+  assert.doesNotMatch(set.style, /margin/);
+  assert.match(set.style, /color: red/);
+  assert.match(set.style, /white-space: break-spaces/);
+  assert.equal(unset['data-set'], undefined);
+  assert.equal(unset.role, 'document');
+});

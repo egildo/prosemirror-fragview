@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+
+- The view's element has a role and can have an accessible name. The `attributes` prop, direct or from a plugin, an object or a function of the state, reaches `view.dom` as `EditorView`'s does: classes and styles add up after the view's own, for any other name the first to give it wins, an attribute a prop stops giving is removed at the next state or `setProps`, and `contenteditable`, `translate` and the writer opt-outs cannot be overridden. Without a `role` from any prop the root is `role="textbox"` with `aria-multiline="true"`; it used to carry no role and no name, and the prop was ignored. The fragments are still rebuilt at every fill, and what a screen reader makes of that waits for a measurement, made when a host asks (the ruling of 2026-11-08).
 ## 0.1.3 (2026-11-08)
 
 - A face offered a new node after a fill is asked `update` with `getPos()` answering the position it is offered, as the constructor is, and as `prosemirror-view` answers inside `update`. It answered `undefined` there, since the face was still parked. A view that lays out its inside by it read wrong positions: `prosemirror-spreads`' table numbered every cell from −1, so landing a cell's value closed its buffer, removed the focused input and focused no cell, and the focus fell to the body.
