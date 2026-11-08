@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Home and End move the caret to the start and the end of its visible line, and Shift+Home and Shift+End extend the selection there. Chromium on macOS scrolled the window on these keys and left the caret where it was, in any contenteditable; the paged layout is the view's, so the view now takes the keys (ruled 2026-11-08). The line is read from its rects in the caret's page, and an end of line stays on its line and on its page, before the space it wraps at or the cut. With Cmd, Ctrl or Alt the keys are left to the browser, and a node selection stands.
+
 ## 0.1.2 (2026-11-08)
 
 Fixes from the assessment of 2026-11-07.
