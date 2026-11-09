@@ -1,6 +1,6 @@
 # prosemirror-fragview — a fragmented view for ProseMirror, and the seam to the paginator
 
-Written 2026-10-24 from a conversation with Egildo, after the generic-schema round ([notes/generic-schema-results.md](generic-schema-results.md), the companion [*The Model Is The Document*](schema-companion.html)). A plan, not a record: nothing here is built. It names the seam between ProseMirror's mechanics and a paginator, the component on each side of it, the proof that the seam is clean, and the phases that build it. The studio is the venue; the package leaves for a home of its own when phase 4 holds.
+Written 2026-10-24 from a conversation with Egildo, after the generic-schema round ([notes/generic-schema-results.md](generic-schema-results.md), the companion [*The Model Is The Document*](schema-companion.html)). A plan when it was written: the view and the seam are built since, and the paginator on the other side is `prosemirror-beltype`'s (see the CHANGELOG and [the results](results.md)). It names the seam between ProseMirror's mechanics and a paginator, the component on each side of it, the proof that the seam is clean, and the phases that build it. The studio is the venue; the package leaves for a home of its own when phase 4 holds.
 
 ## The idea in one paragraph
 

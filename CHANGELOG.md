@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.1.4 — 2026-11-08
+## Unreleased
+
+- A right-click no longer narrows a selection across pages. The press cleared the anchor the view had drawn before it looked at the button, so the next Shift+Arrow read the head's page edge for the anchor; only a press of the primary button resets it now. The case is `a right-click leaves a selection across pages as it was, and the next Shift+Arrow extends it from its own anchor` in `test/selection.test.js`.
+- A triple click selects the text of its textblock in the model, where the browser's paragraph selection ended in the next page's first box and the read-back made it a different range. A handler that takes the click still goes first. The case is `a triple click selects the text of the textblock under it`.
+- A selection the view builds from two positions, from the browser's read-back and from a pointer drag, asks the `createSelectionBetween` prop first, as `EditorView` does, and then `TextSelection.between`. The case is `a selection the view builds from two positions asks createSelectionBetween first`.
+- Corrections in passing: the 0.1.4 heading takes the other headings' form, the entry that said `BELTYPE_STUDIO` names a checkout says it is gone, a source comment left an orphan line and an unstarred block line, and `docs/plan.md` no longer says nothing is built.
+
+## 0.1.4 (2026-11-08)
 
 - A host can give the pages its own serializer. The `domSerializer` prop, direct or from a plugin, is a `DOMSerializer` whose node and mark specs the slice renderer writes with, as `clipboardSerializer` is for `EditorView`'s copy; a host used to patch `schema.cached.domSerializer` to resolve its images' `src`. `sliceRenderer(words, faces, domSerializer)` takes it as a third argument, and a new value through `setProps` invalidates the chain. `setProps` also rebuilt the renderer from the new props alone, so a call that gave only `domSerializer` or `words` dropped the other's earlier value; it reads the merged props now. The case is `a domSerializer prop writes the pages with the host's node specs` in `test/slice-renderer.test.js`.
 - The fragments plugin's state serializes. It had no `toJSON` or `fromJSON`, so a state reopened from JSON started a new chain of one dirty entry, and a paginator keyed by the entries' keys found no entry for its rows and dropped them. The state is `{ entries }` as it is, when the plugin is named in `EditorState`'s `pluginFields`. The case is `a state reopened from JSON keeps its chain` in `test/fragments-plugin.test.js`.
@@ -71,7 +78,7 @@ Fixes from the integration review of 2026-11-04.
 - The root carries `translate="no"` and the opt-out attributes of Grammarly and LanguageTool. A host removes one from `view.dom` to allow that writer.
 - A `compositionend` taken by a handler still redraws its fragment from the model.
 - A refill that keeps its `to` but changes its hint now fills the next fragment, which was cut under the old hint. Hints are compared by their JSON.
-- A clean clone installs and tests: the private studio is no longer a dev dependency. `BELTYPE_STUDIO` names its checkout for the harness's `schema=generic` mode.
+- A clean clone installs and tests: the private studio is no longer a dev dependency. `BELTYPE_STUDIO` named its checkout for the harness's `schema=generic` mode; it is gone since 0.1.2.
 - `LICENSE` carries the notice of `prosemirror-view`, for the code ported from it.
 - `hasFocus()` answers whether the root itself has focus, as in `prosemirror-view`. `hasFocus()` used to be true for anything focused inside the root. The view has its own test, `ownsSelection()`: it neither reads nor writes the browser's selection while focus is on a form control or inside a leaf's drawing, so such an element keeps its focus. A focusable element that holds the document's text (a mark or a block with a `tabindex`) is still the view's, and a click in it moves the selection.
 - An event from a form control (`input`, `textarea`, `select`, `button`, or anything inside one) or from an editing host nested in a leaf's drawing belongs to that element: neither `handleDOMEvents` nor the view's handlers see it. Any other element with input of its own stops propagation at its own root. A plain `toDOM` `<input>` can now be typed in. It used to lose every key, and Backspace ran the keymaps against the document.
